@@ -11,13 +11,17 @@ class PhotoVideoApplication : Application() {
         super.onCreate()
         try {
             FirebaseApp.initializeApp(this)
-            val firebaseAppCheck = FirebaseAppCheck.getInstance()
-            firebaseAppCheck.installAppCheckProviderFactory(
-                DebugAppCheckProviderFactory.getInstance()
-            )
-            Log.d("PhotoVideoApplication", "Firebase and AppCheck initialized successfully")
-        } catch (e: Exception) {
-            Log.w("PhotoVideoApplication", "Firebase AppCheck init notice: ${e.message}")
+            try {
+                val firebaseAppCheck = FirebaseAppCheck.getInstance()
+                firebaseAppCheck.installAppCheckProviderFactory(
+                    DebugAppCheckProviderFactory.getInstance()
+                )
+                Log.d("PhotoVideoApplication", "Firebase and AppCheck initialized successfully")
+            } catch (t: Throwable) {
+                Log.w("PhotoVideoApplication", "Firebase AppCheck skipped: ${t.message}")
+            }
+        } catch (t: Throwable) {
+            Log.w("PhotoVideoApplication", "Firebase App init notice: ${t.message}")
         }
     }
 }

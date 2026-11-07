@@ -17,15 +17,21 @@ import kotlinx.coroutines.flow.map
 private val Context.dataStore by preferencesDataStore(name = "user_preferences")
 
 class PreferencesManager(private val context: Context) {
-    private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-    private val listType = Types.newParameterizedType(List::class.java, UploadRecord::class.java)
-    private val adapter = moshi.adapter<List<UploadRecord>>(listType)
+    private val adapter by lazy {
+        try {
+            val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+            val listType = Types.newParameterizedType(List::class.java, UploadRecord::class.java)
+            moshi.adapter<List<UploadRecord>>(listType)
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     val themeFlow: Flow<ThemePreference> = context.dataStore.data.map { prefs ->
         val name = prefs[KEY_THEME] ?: ThemePreference.SYSTEM.name
         try {
             ThemePreference.valueOf(name)
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             ThemePreference.SYSTEM
         }
     }
@@ -37,8 +43,8 @@ class PreferencesManager(private val context: Context) {
     val localHistoryFlow: Flow<List<UploadRecord>> = context.dataStore.data.map { prefs ->
         val json = prefs[KEY_LOCAL_UPLOADS] ?: "[]"
         try {
-            adapter.fromJson(json) ?: emptyList()
-        } catch (_: Exception) {
+            adapter?.fromJson(json) ?: emptyList()
+        } catch (_: Throwable) {
             emptyList()
         }
     }
@@ -60,17 +66,21 @@ class PreferencesManager(private val context: Context) {
         // Remove if existing with same shortId
         currentList.removeAll { it.shortId == record.shortId }
         currentList.add(0, record)
-        val json = adapter.toJson(currentList)
-        context.dataStore.edit { prefs ->
-            prefs[KEY_LOCAL_UPLOADS] = json
-        }
+        try {
+            val json = adapter?.toJson(currentList) ?: "[]"
+            context.dataStore.edit { prefs ->
+                prefs[KEY_LOCAL_UPLOADS] = json
+            }
+        } catch (_: Throwable) { }
     }
 
     suspend fun saveAllRecords(records: List<UploadRecord>) {
-        val json = adapter.toJson(records)
-        context.dataStore.edit { prefs ->
-            prefs[KEY_LOCAL_UPLOADS] = json
-        }
+        try {
+            val json = adapter?.toJson(records) ?: "[]"
+            context.dataStore.edit { prefs ->
+                prefs[KEY_LOCAL_UPLOADS] = json
+            }
+        } catch (_: Throwable) { }
     }
 
     suspend fun clearHistoryCache() {
