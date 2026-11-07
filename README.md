@@ -1,11 +1,269 @@
-<div align="center">
+# Photo Video URL — Native Android Application
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+A production-oriented Android application that enables users to select photos, videos, documents, files, and APKs from their Android device, upload them directly to their own Supabase Storage bucket, and register instant, unique short URLs in Firebase Realtime Database for public sharing at **`https://ivu.gt.tc/{shortId}`**.
 
-  <h1>Built with AI Studio</h2>
+---
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 📱 Project Identity
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+- **Application Name:** Photo Video URL
+- **Package Name / Application ID:** `com.praveen.studio.photovideo.url`
+- **Target Platform:** Android (Native Kotlin & Jetpack Compose)
+- **Minimum SDK:** Android 9 (API 28)
+- **Target SDK:** Android 15 (API 36)
+- **Architecture:** Clean Architecture + MVVM + Repository Pattern
+- **Support Contact:** `praveensahani9273@gmail.com`
 
-</div>
+---
+
+## 🌟 Key Features
+
+1. **Multi-Category Media Uploads (Locked until Supabase is connected):**
+   - **Photos (Images):** PNG, JPG, WEBP, GIF, SVG (Strictly photos only via Android Photo Picker)
+   - **Videos:** MP4, MKV, MOV, WEBM (Strictly videos only via Android Photo Picker)
+   - **Documents:** PDF, DOC, DOCX, TXT, XLS, PPT (Strictly documents)
+   - **Files:** ZIP, 7Z, TAR, RAR, and folder archives only
+   - **APKs:** 2 Modes:
+     - *Upload Device APK File* (Pick `.apk` file from phone storage)
+     - *Extract Installed App APK* (Lists installed apps on device, extracts `.apk` into user's public `Downloads` folder, and uploads it directly)
+
+2. **Supabase Storage Integration:**
+   - Direct streaming REST upload via OkHttp with live byte-level progress reporting.
+   - Organized folder hierarchy: `media/images/`, `media/videos/`, `media/documents/`, `media/files/`, `media/apks/`.
+   - Credentials securely encrypted on-device via **Android Keystore** (`EncryptedSharedPreferences`).
+   - One-touch connection test to verify project URL and anon public key.
+
+3. **Unique Short URL Generation:**
+   - Generates collision-checked random URL-safe 7-character IDs prefixed by media type (e.g., `image_AaBb123`, `video_XyZ9821`, `document_PqR4567`, `file_MnK8214`, `apk_BvC9281`).
+   - Final shareable link: `https://ivu.gt.tc/{shortId}`.
+
+4. **Real-Time Firebase Realtime Database Sync:**
+   - Maintains user upload history under `user/{installationId}/details` and `user/{installationId}/{category}/{shortId}`.
+   - Publishes public link resolver node under `public_links/{shortId}`.
+   - Configuration backend under `app/backend` and `app/about`.
+   - Offline-first cache backed by DataStore ensures history persists across restarts.
+
+5. **Real-Time Live Upload HUD:**
+   - Live percentage bar, upload speed (KB/s and MB/s), uploaded MB / total MB, and elapsed time counter.
+   - Instant 1-tap Copy, Share, and Open browser actions.
+
+6. **Free Trial Gallery Demo (3 Photos Only):**
+   - Direct gallery photo selection before connecting Supabase.
+   - Strictly limited to 3 trial uploads per Installation ID.
+   - Once all 3 uploads are completed, the trial banner disappears completely.
+
+7. **Custom Adaptive Launcher Icon:**
+   - Material You compliant adaptive launcher icon featuring a stylized film frame intertwined with an electric link chain emblem.
+
+---
+
+## 🔀 Which Supabase is used when?
+
+| Situation | Supabase used |
+|---|---|
+| User has **not** set up Supabase | Only the **3 free demo photos** (picked from the gallery) use the developer Supabase stored manually in Firebase `app/backend`. Files go to the `trial/images/` folder. |
+| User finished **Settings → Supabase setup** | **Everything** (photos, videos, documents, files, APKs) goes to the **user's own** Supabase. `app/backend` is never used. |
+
+- Before setup, all five category cards stay visible but dull (no lock icon). Tapping one opens **"Set up your Supabase"**, which leads to Settings.
+- After the 3 free photos are used, the demo banner disappears.
+
+## 🗜️ Large files (ZIP & Upload)
+
+Supabase Free allows 50 MB per file (Pro and above can raise it). When a picked file is bigger than 50 MB, or Supabase answers with HTTP 413, the app asks:
+**ZIP & Upload** (creates a ZIP in the app cache and uploads it as a File), **Upload as is**, or **Cancel**.
+ZIP shrinks documents a lot, but videos, photos and APKs are already compressed and shrink very little.
+Uploads are streamed from disk, so big files no longer load fully into memory.
+
+## 📦 APK extractor list
+
+Only apps the user installed (and updated system apps such as Chrome or YouTube) are listed. Built-in Android system apps are hidden.
+
+## 🏗️ Technical Architecture
+
+```
+com.praveen.studio.photovideo.url/
+├── PhotoVideoApplication.kt       # Application class initializing Firebase & App Check
+├── MainActivity.kt                # Single activity with edge-to-edge support
+├── data/
+│   ├── local/
+│   │   ├── InstallationIdProvider.kt  # Non-fingerprinted random UUID installation identifier
+│   │   ├── PreferencesManager.kt      # DataStore preferences & local upload cache
+│   │   └── SecureStorageManager.kt    # Android Keystore EncryptedSharedPreferences
+│   ├── model/
+│   │   ├── MediaCategory.kt           # Category enum (IMAGES, VIDEOS, DOCUMENTS, FILES, APKS)
+│   │   ├── SelectedMediaItem.kt       # Staged file item representation
+│   │   ├── SupabaseConfig.kt          # Validated Supabase credentials
+│   │   ├── ThemePreference.kt         # System, Light, Dark preferences
+│   │   ├── UploadProgress.kt          # Sealed interface for upload states
+│   │   └── UploadRecord.kt            # Firebase RTDB record structure
+│   ├── remote/
+│   │   ├── CountingRequestBody.kt     # Streaming OkHttp progress sink
+│   │   ├── FirebaseDatabaseManager.kt # Firebase RTDB CRUD and collision-checking
+│   │   └── SupabaseStorageClient.kt   # Supabase Storage REST API client
+│   └── worker/
+│       └── MediaUploadWorker.kt       # WorkManager resilient background worker
+├── domain/
+│   └── repository/
+│       ├── HistoryRepository.kt       # Remote RTDB + local cache reactive stream
+│       ├── SettingsRepository.kt      # Configuration & theme manager
+│       └── UploadRepository.kt        # Multi-stage upload coordinator
+└── ui/
+    ├── PhotoVideoApp.kt               # Root composable with M3 NavigationBar & BackHandler
+    ├── components/
+    │   ├── AppHeader.kt               # App title, logo, connection pill, history shortcut
+    │   ├── DemoModeBanner.kt          # Demo mode banner & 3-sample modal picker
+    │   ├── UploadCategoryCard.kt      # 5 category upload cards
+    │   └── UploadProgressDialog.kt    # Live progress dialog with transfer speed & metrics
+    ├── navigation/
+    │   └── Screen.kt                  # HOME, HISTORY, SETTINGS screens
+    ├── screens/
+    │   ├── history/
+    │   │   ├── HistoryItemCard.kt     # Item card with thumbnail, URLs, copy/share/open
+    │   │   ├── HistoryScreen.kt       # Search bar, category filter chips, dynamic list
+    │   │   └── HistoryViewModel.kt
+    │   ├── home/
+    │   │   ├── HomeScreen.kt          # Five upload cards & photo/document pickers
+    │   │   └── HomeViewModel.kt
+    │   └── settings/
+    │       ├── SettingsScreen.kt      # Supabase URL, Anon key, test connection, setup guide
+    │       └── SettingsViewModel.kt
+    └── theme/
+        ├── Color.kt                   # Modern cyan, slate, indigo, and accent colors
+        ├── Theme.kt                   # Material 3 theme wrapper
+        └── Type.kt                    # Clean typography scales
+```
+
+---
+
+## ⚙️ Supabase Setup Instructions
+
+1. **Create a Supabase Project:**
+   - Sign up or log in at [supabase.com](https://supabase.com).
+   - Create a new project and select your preferred region.
+
+2. **Retrieve API Credentials:**
+   - In the Supabase project dashboard, navigate to **Project Settings** > **API**.
+   - Copy the **Project URL** (e.g., `https://abcdefghijkl.supabase.co`).
+   - Copy the **`anon` public key** (starts with `eyJhbGciOi...`).
+   - *Never copy or use the `service_role` secret key.*
+
+3. **Create the Storage Bucket:**
+   - Go to **Storage** in the sidebar.
+   - Click **New bucket**.
+   - Set the bucket name to `media` (or your preferred name, matching the app settings).
+   - Toggle **Public bucket** to `ON` so uploaded files can be viewed via their public URLs.
+
+4. **Configure Storage RLS Policies:**
+   Under **Storage** > **Policies** for bucket `media`:
+   - **SELECT Policy (Public Viewing):**
+     - Target: `anon`, `authenticated`
+     - Policy: `bucket_id = 'media'`
+   - **INSERT Policy (Client Uploads):**
+     - Target: `anon`, `authenticated`
+     - Policy: `bucket_id = 'media'`
+
+---
+
+## 🔥 Firebase Realtime Database Clean Structure & Security Rules
+
+### Database Hierarchy
+```
+user/
+  └── {installationId}/
+        ├── details/
+        │     ├── name: "Praveen"
+        │     ├── totalPhotosUpload: 0
+        │     ├── totalVideosUpload: 0
+        │     ├── totalDocumentsUpload: 0
+        │     ├── totalFilesUpload: 0
+        │     ├── totalApksUpload: 0
+        │     ├── supabaseApi: ""
+        │     ├── supabaseKey: ""
+        │     ├── premium: false
+        │     ├── freeTierUploadsUsed: 0
+        │     └── freeTierMax: 3
+        ├── images/
+        │     └── {shortId}/
+        │           ├── fileName: "sample.jpg"
+        │           ├── fileType: "image"
+        │           ├── fileSize: 1048576
+        │           ├── supabaseUrl: "https://.../sample.jpg"
+        │           ├── shortUrl: "https://ivu.gt.tc/image_AaBb123"
+        │           ├── uploadDate: "06/11/2026"
+        │           ├── uploadTime: "10:45 AM"
+        │           ├── timestamp: 1730880000000
+        │           └── shortId: "image_AaBb123"
+        ├── videos/
+        ├── documents/
+        ├── files/
+        └── apks/
+
+app/
+  ├── backend/           <-- Developer manually enters Supabase API & Key here!
+  │     ├── supabaseApi: "https://xyz.supabase.co"
+  │     ├── supabaseKey: "eyJhbGciOi..."
+  │     └── bucket: "media"
+  └── about/
+        ├── appName: "Photo Video URL"
+        ├── contact: "praveensahani9273@gmail.com"
+        ├── supportEmail: "praveensahani9273@gmail.com"
+        ├── domain: "https://ivu.gt.tc"
+        └── version: "1.0.0"
+
+public_links/
+  └── {shortId}/
+        ├── type: "image"
+        ├── mimeType: "image/jpeg"
+        ├── supabaseUrl: "https://..."
+        ├── createdAt: 1730880000000
+        └── active: true
+```
+
+### Production Security Rules (Firebase Console)
+Configure these rules in your Firebase Console under **Realtime Database > Rules**:
+
+```json
+{
+  "rules": {
+    "user": {
+      "$installationId": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "app": {
+      ".read": true,
+      ".write": true
+    },
+    "public_links": {
+      ".read": true,
+      "$shortId": {
+        ".write": true
+      }
+    }
+  }
+}
+```
+
+---
+
+## 🛠️ Building & Running
+
+### Local Android Studio Build
+```bash
+gradle assembleDebug
+```
+The generated APK will be located at:
+`app/build/outputs/apk/debug/app-debug.apk`
+
+### Running Robolectric Tests
+```bash
+gradle :app:testDebugUnitTest
+```
+
+---
+
+## 📄 License & Attribution
+
+Developed for **Photo Video URL** by Praveen Sahani.  
+Support: `praveensahani9273@gmail.com`

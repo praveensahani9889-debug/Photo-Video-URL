@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "411751765755",
+    "firebase_url": "https://photo-video-url-default-rtdb.firebaseio.com",
+    "project_id": "photo-video-url",
+    "storage_bucket": "photo-video-url.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:411751765755:android:25f661b0368263a129425e",
+        "android_client_info": {
+          "package_name": "com.praveen.studio.photovideo.url"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "411751765755-0lat8r1mc7p1eskhtkrvtvqs3j9bq71g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD4uBodIsPtE1CyCNA5p6_4Ci8Oyf0c6Ok"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "411751765755-0lat8r1mc7p1eskhtkrvtvqs3j9bq71g.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,80 @@
+name: Android CI & APK Build
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Accepts Android SDK licenses and ensures Android 36 packages exist on the runner
+      - name: Accept Android SDK Licenses & Prepare Platform
+        run: |
+          echo "Using Android SDK at: $ANDROID_HOME"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
+
+      # Installs Gradle 9.3.1 CLI into PATH
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      # Ensures gradlew exists with Unix line endings and executable permissions
+      - name: Prepare Gradle Wrapper
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            echo "gradlew not found in repo root. Generating wrapper..."
+            gradle wrapper --gradle-version 9.3.1
+          fi
+          sed -i 's/\r$//' ./gradlew || true
+          chmod +x ./gradlew || true
+
+      # Restore debug.keystore from debug.keystore.base64 (or generate fallback)
+      - name: Restore or Generate Debug Keystore
+        run: |
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Successfully restored debug.keystore from debug.keystore.base64"
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            echo "Generated fallback debug.keystore"
+          fi
+
+      # Build Debug APK using Gradle CLI
+      - name: Build Debug APK
+        run: gradle assembleDebug --stacktrace
+
+      # Check generated APK
+      - name: Verify APK
+        run: |
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+      # Upload Debug APK Artifact
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: photo-video-url-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

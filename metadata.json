@@ -1,0 +1,6 @@
+{
+  "name": "Photo Video URL",
+  "description": "Upload photos, videos, documents, and files to Supabase Storage and generate instant shareable short URLs with Firebase Realtime Database.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
