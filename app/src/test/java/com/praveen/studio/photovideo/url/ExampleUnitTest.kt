@@ -29,12 +29,12 @@ class ExampleUnitTest {
     fun testUserDetailsCounters() {
         val details = UserDetails(
             name = "Praveen",
-            totalPhotosUpload = 2,
-            totalVideosUpload = 1,
-            freeTierUploadsUsed = 1,
-            freeTierMax = 3
+            totalPhotosUpload = 2L,
+            totalVideosUpload = 1L,
+            freeTierUploadsUsed = 1L,
+            freeTierMax = 3L
         )
-        assertEquals(3, details.totalAllUploads)
+        assertEquals(3L, details.totalAllUploads)
         assertTrue(details.hasFreeUploadsLeft)
         assertEquals(2, details.freeUploadsRemaining)
     }

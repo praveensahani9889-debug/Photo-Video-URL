@@ -7,25 +7,15 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.Types
-import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+import org.json.JSONObject
 
 private val Context.dataStore by preferencesDataStore(name = "user_preferences")
 
 class PreferencesManager(private val context: Context) {
-    private val adapter by lazy {
-        try {
-            val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-            val listType = Types.newParameterizedType(List::class.java, UploadRecord::class.java)
-            moshi.adapter<List<UploadRecord>>(listType)
-        } catch (_: Throwable) {
-            null
-        }
-    }
 
     val themeFlow: Flow<ThemePreference> = context.dataStore.data.map { prefs ->
         val name = prefs[KEY_THEME] ?: ThemePreference.SYSTEM.name
@@ -42,11 +32,7 @@ class PreferencesManager(private val context: Context) {
 
     val localHistoryFlow: Flow<List<UploadRecord>> = context.dataStore.data.map { prefs ->
         val json = prefs[KEY_LOCAL_UPLOADS] ?: "[]"
-        try {
-            adapter?.fromJson(json) ?: emptyList()
-        } catch (_: Throwable) {
-            emptyList()
-        }
+        deserializeList(json)
     }
 
     suspend fun setTheme(theme: ThemePreference) {
@@ -63,11 +49,10 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun addUploadRecord(record: UploadRecord) {
         val currentList = localHistoryFlow.first().toMutableList()
-        // Remove if existing with same shortId
         currentList.removeAll { it.shortId == record.shortId }
         currentList.add(0, record)
         try {
-            val json = adapter?.toJson(currentList) ?: "[]"
+            val json = serializeList(currentList)
             context.dataStore.edit { prefs ->
                 prefs[KEY_LOCAL_UPLOADS] = json
             }
@@ -76,7 +61,7 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun saveAllRecords(records: List<UploadRecord>) {
         try {
-            val json = adapter?.toJson(records) ?: "[]"
+            val json = serializeList(records)
             context.dataStore.edit { prefs ->
                 prefs[KEY_LOCAL_UPLOADS] = json
             }
@@ -93,5 +78,78 @@ class PreferencesManager(private val context: Context) {
         private val KEY_THEME = stringPreferencesKey("app_theme")
         private val KEY_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
         private val KEY_LOCAL_UPLOADS = stringPreferencesKey("local_cached_uploads")
+
+        private fun recordToJson(record: UploadRecord): JSONObject {
+            return JSONObject().apply {
+                put("shortId", record.shortId)
+                put("ownerInstallationId", record.ownerInstallationId)
+                put("fileName", record.fileName)
+                put("fileType", record.fileType)
+                put("type", record.type)
+                put("mimeType", record.mimeType)
+                put("fileSize", record.fileSize)
+                put("storageBucket", record.storageBucket)
+                put("storagePath", record.storagePath)
+                put("originalSupabaseUrl", record.originalSupabaseUrl)
+                put("supabaseUrl", record.supabaseUrl)
+                put("publicUrl", record.publicUrl)
+                put("shortUrl", record.shortUrl)
+                put("uploadDate", record.uploadDate)
+                put("uploadTime", record.uploadTime)
+                put("createdAt", record.createdAt)
+                put("timestamp", record.timestamp)
+                put("uploadDuration", record.uploadDuration)
+                put("status", record.status)
+                put("isDemo", record.isDemo)
+                put("isFreeTier", record.isFreeTier)
+            }
+        }
+
+        private fun jsonToRecord(obj: JSONObject): UploadRecord {
+            return UploadRecord(
+                shortId = obj.optString("shortId"),
+                ownerInstallationId = obj.optString("ownerInstallationId"),
+                fileName = obj.optString("fileName"),
+                fileType = obj.optString("fileType"),
+                type = obj.optString("type"),
+                mimeType = obj.optString("mimeType"),
+                fileSize = obj.optLong("fileSize", 0L),
+                storageBucket = obj.optString("storageBucket"),
+                storagePath = obj.optString("storagePath"),
+                originalSupabaseUrl = obj.optString("originalSupabaseUrl"),
+                supabaseUrl = obj.optString("supabaseUrl"),
+                publicUrl = obj.optString("publicUrl"),
+                shortUrl = obj.optString("shortUrl"),
+                uploadDate = obj.optString("uploadDate"),
+                uploadTime = obj.optString("uploadTime"),
+                createdAt = obj.optLong("createdAt", 0L),
+                timestamp = obj.optLong("timestamp", 0L),
+                uploadDuration = obj.optLong("uploadDuration", 0L),
+                status = obj.optString("status", "completed"),
+                isDemo = obj.optBoolean("isDemo", false),
+                isFreeTier = obj.optBoolean("isFreeTier", false)
+            )
+        }
+
+        private fun serializeList(list: List<UploadRecord>): String {
+            val arr = JSONArray()
+            for (record in list) {
+                arr.put(recordToJson(record))
+            }
+            return arr.toString()
+        }
+
+        private fun deserializeList(json: String): List<UploadRecord> {
+            if (json.isBlank() || json == "[]") return emptyList()
+            val list = mutableListOf<UploadRecord>()
+            try {
+                val arr = JSONArray(json)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    list.add(jsonToRecord(obj))
+                }
+            } catch (_: Throwable) { }
+            return list
+        }
     }
 }
