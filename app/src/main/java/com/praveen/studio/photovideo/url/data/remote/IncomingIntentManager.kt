@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import com.praveen.studio.photovideo.url.data.model.IncomingSharedMedia
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
+import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,22 +28,18 @@ object IncomingIntentManager {
 
         Log.d(TAG, "Incoming intent action: $action, data: $data, type: ${intent.type}")
 
-        // 1. Check Deep Link for domain ivu.gt.tc
+        // 1. Check Deep Link for domain ivu.gt.tc. Only real media ids (image_..., video_..., ...) are
+        //    accepted - the same rule the website uses - so other pages never open the viewer.
         if (Intent.ACTION_VIEW == action && data != null) {
             val host = data.host.orEmpty().lowercase()
             if (host == "ivu.gt.tc" || host.endsWith(".ivu.gt.tc")) {
-                val path = data.path.orEmpty().trim().removePrefix("/")
-                val fragment = data.fragment.orEmpty().trim().removePrefix("#")
-                val shortId = when {
-                    path.isNotEmpty() -> path
-                    fragment.isNotEmpty() -> fragment
-                    else -> ""
-                }
-                if (shortId.isNotBlank()) {
+                val shortId = LinkRules.parseShortId(data.path)
+                    ?: LinkRules.parseShortId(data.fragment)
+                if (shortId != null) {
                     Log.d(TAG, "Deep link detected with shortId: $shortId")
                     _deepLinkShortId.value = shortId
-                    return
                 }
+                return
             }
         }
 
@@ -85,11 +82,22 @@ object IncomingIntentManager {
             }
 
             if (clipUris.isNotEmpty()) {
-                val firstUri = clipUris.first()
-                val mimeType = intent.type ?: context.contentResolver.getType(firstUri)
-                val fileName = queryDisplayName(context, firstUri)
-                val category = MediaCategory.fromMimeAndExtension(mimeType, fileName)
-                val previewTitle = "${clipUris.size} ${category.title} shared"
+                // A share can mix photos, videos and files: the upload uses each file's own category,
+                // the dialog only needs a label.
+                val categories = clipUris.map { uri ->
+                    val mime = try {
+                        context.contentResolver.getType(uri)
+                    } catch (_: Exception) {
+                        null
+                    } ?: intent.type
+                    MediaCategory.fromMimeAndExtension(mime, uri.lastPathSegment)
+                }.distinct()
+                val category = categories.singleOrNull() ?: MediaCategory.FILES
+                val previewTitle = if (categories.size == 1) {
+                    "${clipUris.size} ${category.title} shared"
+                } else {
+                    "${clipUris.size} files shared"
+                }
 
                 Log.d(TAG, "Shared multiple items detected: count=${clipUris.size}, category=$category")
                 _sharedMedia.value = IncomingSharedMedia(

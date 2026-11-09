@@ -1,5 +1,6 @@
 package com.praveen.studio.photovideo.url.domain.util
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.ApplicationInfo
@@ -9,12 +10,17 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.praveen.studio.photovideo.url.data.model.InstalledAppInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
+import java.util.zip.Deflater
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 data class ExtractedApkResult(
     val uploadUri: Uri,
@@ -78,7 +84,8 @@ object ApkExtractorHelper {
                         sourceDir = sourceDir,
                         sizeBytes = file.length(),
                         isSystemApp = false,
-                        icon = icon
+                        icon = icon,
+                        splitSourceDirs = appInfo.splitSourceDirs?.toList().orEmpty()
                     )
                 )
             } catch (_: Exception) {
@@ -92,9 +99,14 @@ object ApkExtractorHelper {
         )
     }
 
+    private const val APK_MIME = "application/vnd.android.package-archive"
+
     /**
-     * Extracts the installed app APK and saves it into the device's public Downloads directory,
-     * as well as preparing a cache Uri for immediate Supabase upload.
+     * Prepares the installed app for upload (staged copy in the app cache) and, when the device allows it,
+     * also saves a copy into the public Downloads folder.
+     *
+     * Apps installed from an App Bundle consist of several APKs (base + split_*.apk). The base APK alone
+     * cannot be installed, so those apps are exported as one ".apks" archive containing every part.
      */
     suspend fun extractApkToDownloads(
         context: Context,
@@ -105,63 +117,47 @@ object ApkExtractorHelper {
             if (!srcFile.exists()) {
                 return@withContext Result.failure(IllegalStateException("Source APK not found at ${appInfo.sourceDir}"))
             }
+            val splitFiles = appInfo.splitSourceDirs.map { File(it) }.filter { it.exists() && it.canRead() }
+            val isBundle = splitFiles.isNotEmpty()
 
             val sanitizedAppName = appInfo.appName.replace(Regex("[^a-zA-Z0-9_\\-]"), "_").take(24)
             val cleanVersion = appInfo.versionName.replace(Regex("[^a-zA-Z0-9_\\-\\.]"), "_").take(12)
-            val fileName = "${sanitizedAppName}_v${cleanVersion}.apk"
+            val fileName = "${sanitizedAppName}_v${cleanVersion}." + if (isBundle) "apks" else "apk"
+            val mimeType = if (isBundle) "application/zip" else APK_MIME
 
-            // 1. Save to device's public Downloads directory
-            var savedInDownloads = false
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/vnd.android.package-archive")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
-                }
-
-                val resolver = context.contentResolver
-                val downloadUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                if (downloadUri != null) {
-                    resolver.openOutputStream(downloadUri)?.use { outStream ->
-                        FileInputStream(srcFile).use { inStream ->
-                            inStream.copyTo(outStream)
-                        }
-                    }
-                    values.clear()
-                    values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                    resolver.update(downloadUri, values, null, null)
-                    savedInDownloads = true
-                }
-            } else {
-                @Suppress("DEPRECATION")
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (!downloadsDir.exists()) downloadsDir.mkdirs()
-                val destFile = File(downloadsDir, fileName)
-                FileInputStream(srcFile).use { inStream ->
-                    FileOutputStream(destFile).use { outStream ->
-                        inStream.copyTo(outStream)
-                    }
-                }
-                savedInDownloads = true
-            }
-
-            // 2. Save a staged copy in cacheDir for guaranteed upload stream reading
+            // 1. Staged copy in cacheDir: this is the file that gets uploaded
             val cacheDir = File(context.cacheDir, "extracted_apks")
             if (!cacheDir.exists()) cacheDir.mkdirs()
             val stagedFile = File(cacheDir, fileName)
-            FileInputStream(srcFile).use { inStream ->
-                FileOutputStream(stagedFile).use { outStream ->
-                    inStream.copyTo(outStream)
+            if (isBundle) {
+                writeBundle(srcFile, splitFiles, stagedFile)
+            } else {
+                FileInputStream(srcFile).use { inStream ->
+                    FileOutputStream(stagedFile).use { outStream ->
+                        inStream.copyTo(outStream)
+                    }
                 }
             }
 
-            val uploadUri = Uri.fromFile(stagedFile)
-            val desc = if (savedInDownloads) "Saved to Downloads folder ($fileName)" else "Extracted $fileName"
+            // 2. Extra copy in the public Downloads folder. Only a convenience: if the device does not allow it
+            //    (Android 9 without storage permission, full storage...) the upload still works.
+            val savedInDownloads = try {
+                copyToDownloads(context, stagedFile, fileName, mimeType)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Could not copy to Downloads: ${t.message}")
+                false
+            }
+
+            val parts = if (isBundle) " (base + ${splitFiles.size} split APKs)" else ""
+            val desc = if (savedInDownloads) {
+                "Saved to Downloads folder: $fileName$parts"
+            } else {
+                "Prepared $fileName$parts for upload"
+            }
 
             Result.success(
                 ExtractedApkResult(
-                    uploadUri = uploadUri,
+                    uploadUri = Uri.fromFile(stagedFile),
                     savedFileName = fileName,
                     fileSize = stagedFile.length(),
                     downloadLocationDescription = desc
@@ -171,5 +167,69 @@ object ApkExtractorHelper {
             Log.e(TAG, "Failed extracting APK: ${e.message}", e)
             Result.failure(e)
         }
+    }
+
+    private fun writeBundle(base: File, splits: List<File>, target: File) {
+        ZipOutputStream(FileOutputStream(target).buffered()).use { zip ->
+            zip.setLevel(Deflater.NO_COMPRESSION) // APKs are already compressed
+            addZipEntry(zip, "base.apk", base)
+            splits.forEach { addZipEntry(zip, it.name, it) }
+        }
+    }
+
+    private fun addZipEntry(zip: ZipOutputStream, entryName: String, file: File) {
+        zip.putNextEntry(ZipEntry(entryName))
+        FileInputStream(file).use { it.copyTo(zip) }
+        zip.closeEntry()
+    }
+
+    /** Returns true when the copy was written, false when the device does not allow writing to Downloads. */
+    private fun copyToDownloads(context: Context, source: File, fileName: String, mimeType: String): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            val downloadUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+            try {
+                resolver.openOutputStream(downloadUri)?.use { outStream ->
+                    FileInputStream(source).use { inStream ->
+                        inStream.copyTo(outStream)
+                    }
+                } ?: throw IOException("Could not open the Downloads output stream")
+                values.clear()
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                resolver.update(downloadUri, values, null, null)
+                return true
+            } catch (t: Throwable) {
+                try {
+                    resolver.delete(downloadUri, null, null)
+                } catch (_: Throwable) {
+                }
+                throw t
+            }
+        }
+
+        // Android 9 and below: the public Downloads folder needs WRITE_EXTERNAL_STORAGE, which this app does
+        // not ask for. Without it, skip the extra copy instead of failing the whole extraction.
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) return false
+
+        @Suppress("DEPRECATION")
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!downloadsDir.exists()) downloadsDir.mkdirs()
+        val destFile = File(downloadsDir, fileName)
+        FileInputStream(source).use { inStream ->
+            FileOutputStream(destFile).use { outStream ->
+                inStream.copyTo(outStream)
+            }
+        }
+        return true
     }
 }

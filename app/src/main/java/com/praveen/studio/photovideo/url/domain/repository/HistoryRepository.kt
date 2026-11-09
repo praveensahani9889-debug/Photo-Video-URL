@@ -9,6 +9,7 @@ import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onStart
 
 class HistoryRepository(
     context: Context,
@@ -20,18 +21,26 @@ class HistoryRepository(
     val deviceFingerprint: String get() = installationId
 
     fun getHistoryFlow(): Flow<List<UploadRecord>> {
+        // onStart emits an empty remote list first, so the local cache shows immediately even when
+        // Firebase has not answered yet (offline / slow network).
         val remoteFlow = firebaseDbManager.observeAllUserUploads(installationId)
             .catch { e ->
                 Log.w("HistoryRepository", "Remote Firebase flow error: ${e.message}")
                 emit(emptyList())
             }
+            .onStart { emit(emptyList()) }
         val localFlow = preferencesManager.localHistoryFlow
             .catch { e ->
                 Log.w("HistoryRepository", "Local flow error: ${e.message}")
                 emit(emptyList())
             }
+        val hiddenFlow = preferencesManager.hiddenHistoryIdsFlow
+            .catch { e ->
+                Log.w("HistoryRepository", "Hidden ids flow error: ${e.message}")
+                emit(emptySet())
+            }
 
-        return combine(remoteFlow, localFlow) { remoteList, localList ->
+        return combine(remoteFlow, localFlow, hiddenFlow) { remoteList, localList, hidden ->
             val mergedMap = LinkedHashMap<String, UploadRecord>()
 
             // Add local first
@@ -39,16 +48,35 @@ class HistoryRepository(
                 mergedMap[item.shortId] = item
             }
 
-            // Remote items overwrite/supplement local
+            // Remote items overwrite/supplement local (keeping the details only the local copy has)
             for (item in remoteList) {
-                mergedMap[item.shortId] = item
+                val local = mergedMap[item.shortId]
+                mergedMap[item.shortId] = if (local == null) {
+                    item
+                } else {
+                    item.copy(
+                        fileName = item.fileName.ifEmpty { local.fileName },
+                        mimeType = item.mimeType.ifEmpty { local.mimeType },
+                        storageBucket = item.storageBucket.ifEmpty { local.storageBucket },
+                        storagePath = item.storagePath.ifEmpty { local.storagePath },
+                        uploadDuration = if (item.uploadDuration > 0) item.uploadDuration else local.uploadDuration,
+                        isDemo = local.isDemo
+                    )
+                }
             }
 
-            mergedMap.values.sortedByDescending { it.createdAt }
+            mergedMap.values
+                .filter { it.shortId !in hidden }
+                .sortedByDescending { it.createdAt }
         }
     }
 
     suspend fun clearLocalHistory() {
         preferencesManager.clearHistoryCache()
+    }
+
+    /** History screen "clear": empties the cache and hides the currently listed entries on this device. */
+    suspend fun clearHistory(currentIds: Collection<String>) {
+        preferencesManager.hideAndClear(currentIds)
     }
 }

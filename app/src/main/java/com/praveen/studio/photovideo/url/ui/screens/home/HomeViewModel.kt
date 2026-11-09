@@ -12,6 +12,7 @@ import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
 import com.praveen.studio.photovideo.url.domain.repository.UploadRepository
+import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import com.praveen.studio.photovideo.url.domain.util.UploadLimits
 import com.praveen.studio.photovideo.url.domain.util.ZipHelper
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +21,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -48,6 +53,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private var lastFailedItem: SelectedMediaItem? = null
 
+    /** Files that were still waiting when an earlier file of the same batch failed (continued on Retry). */
+    private var itemsAfterFailure: List<SelectedMediaItem> = emptyList()
+
+    /** Only one batch uploads at a time, so two batches never fight over the progress dialog. */
+    private val uploadMutex = Mutex()
+
     init {
         refreshConfigStatus()
         cleanupTempFiles()
@@ -58,25 +69,56 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun handleSelectedUris(uris: List<Uri>, category: MediaCategory) {
+        resolveAndStage(uris, category)
+    }
+
+    /**
+     * Files received from another app's "Share" menu. A share can mix photos, videos and files,
+     * so every file gets its own category (a video must not end up as an "image_" link).
+     */
+    fun handleSharedUris(uris: List<Uri>) {
+        resolveAndStage(uris, null)
+    }
+
+    private fun resolveAndStage(
+        uris: List<Uri>,
+        fixedCategory: MediaCategory?,
+        customFileName: String? = null,
+        mimeOverride: String? = null
+    ) {
+        if (uris.isEmpty()) return
         val context = getApplication<Application>()
-        val items = uris.mapNotNull { uri ->
-            resolveMediaItem(context, uri, category)
+        viewModelScope.launch {
+            // Name / size lookups can block on cloud-backed providers: keep them off the main thread.
+            val items = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri -> resolveMediaItem(context, uri, fixedCategory, customFileName, mimeOverride) }
+            }
+            stageAndUpload(items)
         }
-        stageAndUpload(items)
     }
 
     /** Free trial: one real photo from the gallery, uploaded to the developer's Supabase (max 3). */
     fun handleFreeTrialGalleryPhoto(uri: Uri) {
         val context = getApplication<Application>()
-        val item = resolveMediaItem(context, uri, MediaCategory.IMAGES)?.copy(isTrial = true) ?: return
-        _stagedItems.value = listOf(item)
-        startBatchUpload(listOf(item))
+        viewModelScope.launch {
+            val item = withContext(Dispatchers.IO) {
+                resolveMediaItem(context, uri, MediaCategory.IMAGES, null, null)
+            }?.copy(isTrial = true) ?: return@launch
+            _stagedItems.value = listOf(item)
+            startBatchUpload(listOf(item))
+        }
     }
 
     fun handleExtractedApk(uri: Uri, fileName: String) {
-        val context = getApplication<Application>()
-        val item = resolveMediaItem(context, uri, MediaCategory.APKS, customFileName = fileName) ?: return
-        stageAndUpload(listOf(item))
+        // Apps made of split APKs are exported as ".apks" (one zip with all parts). The website treats that as a
+        // normal file download, a single ".apk" stays an APK link.
+        val bundle = fileName.endsWith(".apks", ignoreCase = true)
+        resolveAndStage(
+            uris = listOf(uri),
+            fixedCategory = if (bundle) MediaCategory.FILES else MediaCategory.APKS,
+            customFileName = fileName,
+            mimeOverride = if (bundle) "application/zip" else null
+        )
     }
 
     /** Small files upload now. Files over the Supabase limit wait for the user's choice. */
@@ -84,7 +126,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (items.isEmpty()) return
         val (large, normal) = items.partition { it.isTooLarge() }
         if (large.isNotEmpty()) {
-            _largeFileQueue.value = _largeFileQueue.value + large
+            _largeFileQueue.update { it + large }
         }
         if (normal.isNotEmpty()) {
             _stagedItems.value = normal
@@ -98,34 +140,48 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun startBatchUpload(items: List<SelectedMediaItem>) {
         if (items.isEmpty()) return
         viewModelScope.launch {
-            for ((index, item) in items.withIndex()) {
-                lastFailedItem = item
-                var rejectedAsTooLarge = false
+            uploadMutex.withLock { runBatch(items) }
+        }
+    }
 
-                uploadRepository.uploadItem(item, itemIndex = index + 1, totalItems = items.size)
-                    .collect { status ->
-                        val isTooLargeError = status is UploadStatus.Failed &&
-                            status.error.startsWith(SupabaseStorageClient.TOO_LARGE_PREFIX)
-                        if (isTooLargeError && !item.skipSizePrompt && !item.isTrial) {
-                            // Server says "too big": offer ZIP instead of a dead-end error.
-                            rejectedAsTooLarge = true
-                        } else {
-                            _uploadStatus.value = status
-                            if (status is UploadStatus.Success) deleteTempFile(item)
-                        }
+    private suspend fun runBatch(items: List<SelectedMediaItem>) {
+        itemsAfterFailure = emptyList()
+        var anyRejectedAsTooLarge = false
+
+        for ((index, item) in items.withIndex()) {
+            lastFailedItem = item
+            var rejectedAsTooLarge = false
+            var failed = false
+
+            uploadRepository.uploadItem(item, itemIndex = index + 1, totalItems = items.size)
+                .collect { status ->
+                    val isTooLargeError = status is UploadStatus.Failed &&
+                        status.error.startsWith(SupabaseStorageClient.TOO_LARGE_PREFIX)
+                    if (isTooLargeError && !item.skipSizePrompt && !item.isTrial) {
+                        // Server says "too big": offer ZIP instead of a dead-end error.
+                        rejectedAsTooLarge = true
+                    } else {
+                        _uploadStatus.value = status
+                        if (status is UploadStatus.Success) deleteTempFile(item)
+                        if (status is UploadStatus.Failed) failed = true
                     }
-
-                if (rejectedAsTooLarge) {
-                    _largeFileQueue.value = listOf(item) + _largeFileQueue.value
-                    _uploadStatus.value = UploadStatus.Idle
-                    break
                 }
 
-                // If failed, stop next items
-                if (_uploadStatus.value is UploadStatus.Failed) {
-                    break
-                }
+            if (rejectedAsTooLarge) {
+                _largeFileQueue.update { listOf(item) + it }
+                anyRejectedAsTooLarge = true
+                continue // the other files of the batch still upload
             }
+
+            if (failed) {
+                // Remember the rest of the batch: Retry continues with it instead of silently dropping it.
+                itemsAfterFailure = items.drop(index + 1)
+                return
+            }
+        }
+
+        if (anyRejectedAsTooLarge && _uploadStatus.value !is UploadStatus.Success) {
+            _uploadStatus.value = UploadStatus.Idle
         }
     }
 
@@ -181,16 +237,22 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retryLastUpload() {
         val item = lastFailedItem ?: return
+        val rest = itemsAfterFailure
+        itemsAfterFailure = emptyList()
         if (item.isTooLarge()) {
             // Big original file: ask again (ZIP / upload as is) instead of failing the same way
             _uploadStatus.value = UploadStatus.Idle
-            _largeFileQueue.value = listOf(item) + _largeFileQueue.value
+            _largeFileQueue.update { listOf(item) + it }
+            if (rest.isNotEmpty()) startBatchUpload(rest)
         } else {
-            startBatchUpload(listOf(item))
+            startBatchUpload(listOf(item) + rest)
         }
     }
 
     fun dismissProgress() {
+        if (_uploadStatus.value is UploadStatus.Failed) {
+            itemsAfterFailure = emptyList()
+        }
         _uploadStatus.value = UploadStatus.Idle
         _stagedItems.value = emptyList()
     }
@@ -218,12 +280,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun resolveMediaItem(
         context: Context,
         uri: Uri,
-        category: MediaCategory,
-        customFileName: String? = null
+        fixedCategory: MediaCategory?,
+        customFileName: String?,
+        mimeOverride: String?
     ): SelectedMediaItem? {
         var name = customFileName ?: "file_${System.currentTimeMillis()}"
         var size = 0L
-        val mimeType = context.contentResolver.getType(uri) ?: category.mimeTypeFilter
+        val providerMime: String? = mimeOverride ?: try {
+            context.contentResolver.getType(uri)
+        } catch (_: Exception) {
+            null
+        }
 
         if (customFileName == null) {
             try {
@@ -245,6 +312,18 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (_: Exception) { }
         }
+
+        var category = fixedCategory ?: MediaCategory.fromMimeAndExtension(providerMime, name)
+        // .xapk / .apks are archives, not installable .apk files (the website would add ".apk" to their name)
+        if (category == MediaCategory.APKS &&
+            name.substringAfterLast('.', "").lowercase() in listOf("xapk", "apks")
+        ) {
+            category = MediaCategory.FILES
+        }
+
+        val mimeType = (providerMime?.takeIf { it.isNotBlank() }
+            ?: LinkRules.mimeFromExtension(name).ifEmpty { category.mimeTypeFilter })
+            .let { if (it.contains('*')) "application/octet-stream" else it }
 
         return SelectedMediaItem(
             uri = uri,

@@ -12,9 +12,11 @@ import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
+import com.praveen.studio.photovideo.url.data.remote.PublicAccess
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
@@ -185,6 +187,24 @@ class UploadRepository(
         val resolvedSupabaseUrl = uploadData.publicUrl
         val resolvedBucket = uploadData.bucket
 
+        // 3b. A private bucket accepts uploads but the public URL (and so the website) cannot show the file.
+        //     Tell the user now instead of handing out a link that never opens.
+        if (!item.isTrial) {
+            val access = supabaseClient.checkPublicAccess(resolvedSupabaseUrl)
+            if (access == PublicAccess.NOT_PUBLIC) {
+                send(
+                    UploadStatus.Failed(
+                        item.name,
+                        "The file was uploaded, but bucket '$resolvedBucket' is not public, so the link would not open " +
+                            "on the website. In Supabase open Storage > your bucket > Edit, turn ON \"Public bucket\" " +
+                            "and upload again.",
+                        retryable = false
+                    )
+                )
+                return@channelFlow
+            }
+        }
+
         val elapsedDuration = System.currentTimeMillis() - startTime
         send(UploadStatus.RegisteringMetadata(item.name, shortId))
 
@@ -214,15 +234,32 @@ class UploadRepository(
             isFreeTier = item.isTrial
         )
 
-        val dbResult = firebaseDbManager.registerUpload(
-            installationId = installationId,
-            record = record,
-            category = item.category,
-            isFreeTier = item.isTrial
-        )
+        // The short link only works once public_links/{shortId} is saved, so a failure here is a real
+        // failure (a few quick retries first for flaky connections).
+        var dbResult: Result<Unit> = Result.failure(IllegalStateException("Link was not saved"))
+        for (attempt in 1..3) {
+            dbResult = firebaseDbManager.registerUpload(
+                installationId = installationId,
+                record = record,
+                category = item.category,
+                isFreeTier = item.isTrial
+            )
+            if (dbResult.isSuccess) break
+            Log.w(TAG, "Firebase register attempt $attempt failed: ${dbResult.exceptionOrNull()?.message}")
+            if (attempt < 3) delay(attempt * 1000L)
+        }
 
         if (dbResult.isFailure) {
-            Log.w(TAG, "Firebase register notice: ${dbResult.exceptionOrNull()?.message}")
+            send(
+                UploadStatus.Failed(
+                    item.name,
+                    "The file was uploaded but its short link could not be saved " +
+                        "(${dbResult.exceptionOrNull()?.message ?: "unknown error"}). " +
+                        "Check your internet connection and try again.",
+                    retryable = true
+                )
+            )
+            return@channelFlow
         }
 
         // 5. Save to local cache for instant offline & restart availability
@@ -231,10 +268,15 @@ class UploadRepository(
     }.flowOn(Dispatchers.IO)
 
     private fun sanitizeFileName(originalName: String, shortId: String): String {
-        val extension = originalName.substringAfterLast('.', "")
-        val base = originalName.substringBeforeLast('.')
+        // Only a plain alphanumeric tail counts as extension ("Meeting 10.30 AM" has none). Everything else
+        // would end up as spaces/odd characters in the public URL, which the website refuses to open.
+        val rawExtension = originalName.substringAfterLast('.', "")
+        val hasExtension = rawExtension.matches(Regex("[A-Za-z0-9]{1,10}"))
+        val namePart = if (hasExtension) originalName.substringBeforeLast('.') else originalName
+        val base = namePart
             .replace(Regex("[^a-zA-Z0-9_\\-]"), "_")
             .take(30)
-        return if (extension.isNotBlank()) "${shortId}_${base}.${extension}" else "${shortId}_${base}"
+            .ifBlank { "file" }
+        return if (hasExtension) "${shortId}_${base}.${rawExtension}" else "${shortId}_${base}"
     }
 }

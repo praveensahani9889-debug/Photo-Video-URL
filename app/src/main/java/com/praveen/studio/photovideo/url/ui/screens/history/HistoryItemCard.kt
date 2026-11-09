@@ -134,7 +134,12 @@ fun HistoryItemCard(
                                 contentScale = ContentScale.Crop
                             )
                         }
-                        record.mimeType.startsWith("image/") && record.originalSupabaseUrl.startsWith("http") -> {
+                        // records loaded from Firebase may not carry a mime type, so also trust the category
+                        (record.mimeType.startsWith("image/") ||
+                            record.effectiveType.equals("image", ignoreCase = true) ||
+                            record.fileType.equals("images", ignoreCase = true)) &&
+                            !record.mimeType.contains("svg") &&
+                            record.originalSupabaseUrl.startsWith("http") -> {
                             AsyncImage(
                                 model = record.originalSupabaseUrl,
                                 contentDescription = record.fileName,

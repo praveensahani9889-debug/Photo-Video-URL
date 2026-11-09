@@ -19,6 +19,10 @@ class SettingsRepository(
     private val supabaseClient: SupabaseStorageClient = SupabaseStorageClient(),
     private val firebaseDbManager: FirebaseDatabaseManager = FirebaseDatabaseManager()
 ) {
+    companion object {
+        private val REMOTE_CREDENTIAL_FIELDS = listOf("supabaseApi", "supabaseKey")
+    }
+
     val themeFlow: Flow<ThemePreference> = preferencesManager.themeFlow
     val isFirstLaunchFlow: Flow<Boolean> = preferencesManager.isFirstLaunchFlow
     val installationId: String = installationIdProvider.getInstallationId()
@@ -27,15 +31,21 @@ class SettingsRepository(
     fun getConfig(): SupabaseConfig = secureStorageManager.getConfig()
 
     suspend fun saveConfig(config: SupabaseConfig, userName: String = "") {
-        secureStorageManager.saveConfig(config)
+        // Store the normalised URL (https://<ref>.supabase.co), so a pasted "http://..." or ".../rest/v1/"
+        // still produces links that the website accepts.
+        secureStorageManager.saveConfig(config.copy(projectUrl = config.cleanUrl.ifEmpty { config.projectUrl.trim() }))
 
-        // Sync with Firebase details (only these fields, counters stay untouched)
-        val fields = mutableMapOf<String, Any>(
-            "supabaseApi" to config.projectUrl,
-            "supabaseKey" to config.anonKey
-        )
-        if (userName.isNotBlank()) fields["name"] = userName
-        firebaseDbManager.updateUserDetailFields(installationId, fields)
+        // The Supabase URL / key stay on this device only. Remove copies that older app versions
+        // stored in Firebase. Only the name is synced (counters stay untouched).
+        firebaseDbManager.removeUserDetailFields(installationId, REMOTE_CREDENTIAL_FIELDS)
+        if (userName.isNotBlank()) {
+            firebaseDbManager.updateUserDetailFields(installationId, mapOf("name" to userName))
+        }
+    }
+
+    /** Removes credential copies from Firebase (older app versions uploaded them). */
+    suspend fun clearRemoteCredentials() {
+        firebaseDbManager.removeUserDetailFields(installationId, REMOTE_CREDENTIAL_FIELDS)
     }
 
     suspend fun saveUserName(name: String) {

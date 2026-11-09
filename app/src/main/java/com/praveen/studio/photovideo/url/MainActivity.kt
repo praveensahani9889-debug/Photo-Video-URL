@@ -24,10 +24,16 @@ class MainActivity : ComponentActivity() {
             Log.w("MainActivity", "enableEdgeToEdge skipped: ${t.message}")
         }
 
-        try {
-            IncomingIntentManager.handleIntent(this, intent)
-        } catch (t: Throwable) {
-            Log.w("MainActivity", "handleIntent error: ${t.message}")
+        // Handle the launch intent only once. After a recreation (theme change, process restore) or when
+        // the app is reopened from the recent apps list the same intent is delivered again, which would
+        // re-open a viewer / share dialog the user already closed (and could upload the files twice).
+        val launchedFromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (savedInstanceState == null && !launchedFromHistory) {
+            try {
+                IncomingIntentManager.handleIntent(this, intent)
+            } catch (t: Throwable) {
+                Log.w("MainActivity", "handleIntent error: ${t.message}")
+            }
         }
 
         setContent {

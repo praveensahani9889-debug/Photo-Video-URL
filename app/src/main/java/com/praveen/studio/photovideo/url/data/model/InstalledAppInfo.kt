@@ -9,7 +9,9 @@ data class InstalledAppInfo(
     val sourceDir: String,
     val sizeBytes: Long,
     val isSystemApp: Boolean,
-    val icon: Drawable? = null
+    val icon: Drawable? = null,
+    /** Extra split APKs (App Bundle installs). Empty for single-APK apps. */
+    val splitSourceDirs: List<String> = emptyList()
 ) {
     val formattedSize: String
         get() {

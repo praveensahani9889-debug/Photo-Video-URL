@@ -73,7 +73,7 @@ enum class MediaCategory(
             return when {
                 lowerMime.startsWith("image/") || ext in IMAGES.allowedExtensions -> IMAGES
                 lowerMime.startsWith("video/") || ext in VIDEOS.allowedExtensions -> VIDEOS
-                lowerMime == "application/vnd.android.package-archive" || ext in APKS.allowedExtensions -> APKS
+                lowerMime == "application/vnd.android.package-archive" || ext == "apk" -> APKS
                 ext in DOCUMENTS.allowedExtensions ||
                     lowerMime in listOf("application/pdf", "text/plain", "application/msword") ||
                     lowerMime.contains("officedocument") ||

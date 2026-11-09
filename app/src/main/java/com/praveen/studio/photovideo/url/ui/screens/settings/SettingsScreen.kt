@@ -251,6 +251,14 @@ fun SettingsScreen(
                             singleLine = true
                         )
 
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "The bucket must be Public (Supabase > Storage > your bucket > Edit > Public bucket). " +
+                                "Otherwise the links will not open on the website.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
                         Spacer(modifier = Modifier.height(10.dp))
 
                         // Security notice
@@ -494,7 +502,7 @@ fun SettingsScreen(
                         OutlinedTextField(
                             value = userName,
                             onValueChange = { viewModel.setUserName(it) },
-                            placeholder = { Text("e.g. Praveen") },
+                            placeholder = { Text("Your name") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("settings_username_input"),

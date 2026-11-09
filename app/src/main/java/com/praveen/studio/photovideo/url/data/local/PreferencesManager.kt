@@ -4,14 +4,15 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.coroutines.cancellation.CancellationException
 
 private val Context.dataStore by preferencesDataStore(name = "user_preferences")
 
@@ -35,6 +36,11 @@ class PreferencesManager(private val context: Context) {
         deserializeList(json)
     }
 
+    /** History entries the user cleared on this device (their links keep working, they are just hidden). */
+    val hiddenHistoryIdsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
+        prefs[KEY_HIDDEN_IDS] ?: emptySet()
+    }
+
     suspend fun setTheme(theme: ThemePreference) {
         context.dataStore.edit { prefs ->
             prefs[KEY_THEME] = theme.name
@@ -48,14 +54,16 @@ class PreferencesManager(private val context: Context) {
     }
 
     suspend fun addUploadRecord(record: UploadRecord) {
-        val currentList = localHistoryFlow.first().toMutableList()
-        currentList.removeAll { it.shortId == record.shortId }
-        currentList.add(0, record)
         try {
-            val json = serializeList(currentList)
+            // Read-modify-write inside one edit{} so two uploads finishing together cannot overwrite each other.
             context.dataStore.edit { prefs ->
-                prefs[KEY_LOCAL_UPLOADS] = json
+                val currentList = deserializeList(prefs[KEY_LOCAL_UPLOADS] ?: "[]").toMutableList()
+                currentList.removeAll { it.shortId == record.shortId }
+                currentList.add(0, record)
+                prefs[KEY_LOCAL_UPLOADS] = serializeList(currentList.take(MAX_LOCAL_RECORDS))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Throwable) { }
     }
 
@@ -68,9 +76,19 @@ class PreferencesManager(private val context: Context) {
         } catch (_: Throwable) { }
     }
 
+    /** Clears only the local cache; the history is re-synced from Firebase (hidden entries come back too). */
     suspend fun clearHistoryCache() {
         context.dataStore.edit { prefs ->
             prefs[KEY_LOCAL_UPLOADS] = "[]"
+            prefs.remove(KEY_HIDDEN_IDS)
+        }
+    }
+
+    /** "Clear history" button: empties the local cache and hides the given entries on this device. */
+    suspend fun hideAndClear(ids: Collection<String>) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_LOCAL_UPLOADS] = "[]"
+            prefs[KEY_HIDDEN_IDS] = (prefs[KEY_HIDDEN_IDS] ?: emptySet()) + ids
         }
     }
 
@@ -78,6 +96,8 @@ class PreferencesManager(private val context: Context) {
         private val KEY_THEME = stringPreferencesKey("app_theme")
         private val KEY_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
         private val KEY_LOCAL_UPLOADS = stringPreferencesKey("local_cached_uploads")
+        private val KEY_HIDDEN_IDS = stringSetPreferencesKey("hidden_history_ids")
+        private const val MAX_LOCAL_RECORDS = 500
 
         private fun recordToJson(record: UploadRecord): JSONObject {
             return JSONObject().apply {

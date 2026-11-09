@@ -9,14 +9,20 @@ import com.google.firebase.database.ServerValue
 import com.google.firebase.database.ValueEventListener
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.PublicLinkDetails
+import com.praveen.studio.photovideo.url.data.model.PublicLinkLookup
+import com.praveen.studio.photovideo.url.data.model.PublicLinkRecord
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UserDetails
+import com.praveen.studio.photovideo.url.domain.util.LinkRules
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 import java.security.SecureRandom
+import kotlin.coroutines.cancellation.CancellationException
 
 class FirebaseDatabaseManager {
     companion object {
@@ -29,6 +35,14 @@ class FirebaseDatabaseManager {
 
         private const val SHORT_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         private const val SHORT_ID_LENGTH = 7
+
+        private const val REGISTER_TIMEOUT_MS = 20_000L
+        private const val COUNTER_TIMEOUT_MS = 8_000L
+        private const val LOOKUP_TIMEOUT_MS = 10_000L
+
+        /** The app/ defaults only need to be checked once per app process, not on every screen. */
+        @Volatile
+        private var metadataChecked = false
     }
 
     private val random = SecureRandom()
@@ -87,6 +101,7 @@ class FirebaseDatabaseManager {
      * Developer can manually populate `app/backend/supabaseApi` & `supabaseKey` in Firebase console.
      */
     suspend fun initializeAppMetadataIfNeeded() {
+        if (metadataChecked) return
         val root = appRef() ?: return
         try {
             val backendSnap = root.child("backend").get().await()
@@ -112,6 +127,7 @@ class FirebaseDatabaseManager {
                     )
                 ).await()
             }
+            metadataChecked = true
         } catch (t: Throwable) {
             Log.w(TAG, "initializeAppMetadata notice: ${t.message}")
         }
@@ -189,7 +205,7 @@ class FirebaseDatabaseManager {
     private fun parseUserDetailsSafe(snapshot: DataSnapshot?): UserDetails {
         if (snapshot == null || !snapshot.exists()) return UserDetails()
         return try {
-            val name = snapshot.child("name").getValue(String::class.java) ?: "Praveen"
+            val name = snapshot.child("name").getValue(String::class.java) ?: ""
             val photos = getNumberAsLong(snapshot.child("totalPhotosUpload"))
             val videos = getNumberAsLong(snapshot.child("totalVideosUpload"))
             val docs = getNumberAsLong(snapshot.child("totalDocumentsUpload"))
@@ -272,6 +288,23 @@ class FirebaseDatabaseManager {
     }
 
     /**
+     * Deletes the given fields under user/{installationId}/details (used to wipe credentials that older
+     * app versions copied into Firebase).
+     */
+    suspend fun removeUserDetailFields(installationId: String, keys: List<String>) {
+        val ref = userDetailsRef(installationId) ?: return
+        try {
+            val updates = HashMap<String, Any?>()
+            keys.forEach { updates[it] = null }
+            ref.updateChildren(updates).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed removing userDetails fields: ${t.message}")
+        }
+    }
+
+    /**
      * Observes user details in real-time.
      */
     fun observeUserDetails(installationId: String): Flow<UserDetails> = callbackFlow {
@@ -329,6 +362,9 @@ class FirebaseDatabaseManager {
      * Registers an upload in the clean Firebase structure:
      * user/{installationId}/{images|videos|documents|files|apks}/{shortId}
      * and publishes the public resolver node in public_links/{shortId}.
+     *
+     * Returns a failure when the public link could not be saved, so the caller never shows a short link
+     * that the website would answer with "not found".
      */
     suspend fun registerUpload(
         installationId: String,
@@ -344,11 +380,15 @@ class FirebaseDatabaseManager {
         return try {
             val nodeName = categoryNode(category)
             val categoryRef = userNode.child(nodeName)
+            val typeName = category.name.lowercase().removeSuffix("s")
 
-            val uploadData = mapOf(
+            val uploadData = hashMapOf<String, Any>(
                 "fileName" to record.fileName,
-                "fileType" to category.name.lowercase().removeSuffix("s"),
+                "fileType" to typeName,
                 "fileSize" to record.fileSize,
+                "mimeType" to record.mimeType,
+                "storageBucket" to record.storageBucket,
+                "storagePath" to record.storagePath,
                 "supabaseUrl" to record.effectiveSupabaseUrl,
                 "shortUrl" to record.effectiveShortUrl,
                 "uploadDate" to record.uploadDate,
@@ -358,36 +398,84 @@ class FirebaseDatabaseManager {
                 "isFreeTier" to isFreeTier
             )
 
-            categoryRef.child(record.shortId).setValue(uploadData).await()
+            // File name used by the website for the download name / page title: the sanitized storage
+            // name without the short id prefix (the original device file name stays private).
+            val publicFileName = record.storagePath
+                .substringAfterLast('/')
+                .removePrefix("${record.shortId}_")
 
-            // 2. Save public resolver node
-            val publicData = mapOf(
-                "type" to category.name.lowercase().removeSuffix("s"),
+            val publicData = hashMapOf<String, Any>(
+                "type" to typeName,
                 "mimeType" to record.mimeType,
                 "supabaseUrl" to record.effectiveSupabaseUrl,
                 "createdAt" to ServerValue.TIMESTAMP,
                 "active" to true
             )
-            publicLinks.child(record.shortId).setValue(publicData).await()
+            if (publicFileName.isNotBlank()) {
+                publicData["fileName"] = publicFileName
+            }
 
-            // 3. Update details counters
-            val detailsRef = userDetailsRef(installationId)
-            if (detailsRef != null) {
-                val fieldToIncrement = when (category) {
-                    MediaCategory.IMAGES -> "totalPhotosUpload"
-                    MediaCategory.VIDEOS -> "totalVideosUpload"
-                    MediaCategory.DOCUMENTS -> "totalDocumentsUpload"
-                    MediaCategory.FILES -> "totalFilesUpload"
-                    MediaCategory.APKS -> "totalApksUpload"
-                }
-                detailsRef.child(fieldToIncrement).setValue(ServerValue.increment(1))
+            withTimeout(REGISTER_TIMEOUT_MS) {
+                // 1. private history entry
+                categoryRef.child(record.shortId).setValue(uploadData).await()
 
-                if (isFreeTier) {
-                    detailsRef.child("freeTierUploadsUsed").setValue(ServerValue.increment(1))
+                // 2. public resolver node (what https://ivu.gt.tc/<shortId> reads).
+                //    On a retry the previous attempt may already have reached the server (and with create-only
+                //    Firebase rules a second write would be refused), so an identical node counts as saved.
+                try {
+                    val existing = try {
+                        publicLinks.child(record.shortId).get().await()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    val alreadyPublished = existing != null && existing.exists() &&
+                        existing.child("supabaseUrl").getValue(String::class.java) == record.effectiveSupabaseUrl
+                    if (!alreadyPublished) {
+                        publicLinks.child(record.shortId).setValue(publicData).await()
+                    }
+                } catch (t: Throwable) {
+                    // Do not leave a history entry whose link can never open.
+                    try {
+                        categoryRef.child(record.shortId).removeValue()
+                    } catch (_: Throwable) {
+                    }
+                    throw t
                 }
             }
 
+            // 3. counters are best effort: a counter problem must not fail a finished upload
+            try {
+                withTimeout(COUNTER_TIMEOUT_MS) {
+                    val detailsRef = userDetailsRef(installationId)
+                    if (detailsRef != null) {
+                        val fieldToIncrement = when (category) {
+                            MediaCategory.IMAGES -> "totalPhotosUpload"
+                            MediaCategory.VIDEOS -> "totalVideosUpload"
+                            MediaCategory.DOCUMENTS -> "totalDocumentsUpload"
+                            MediaCategory.FILES -> "totalFilesUpload"
+                            MediaCategory.APKS -> "totalApksUpload"
+                        }
+                        detailsRef.child(fieldToIncrement).setValue(ServerValue.increment(1)).await()
+                        if (isFreeTier) {
+                            detailsRef.child("freeTierUploadsUsed").setValue(ServerValue.increment(1)).await()
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                if (e !is TimeoutCancellationException) throw e
+                Log.w(TAG, "Counter update timed out")
+            } catch (t: Throwable) {
+                Log.w(TAG, "Counter update notice: ${t.message}")
+            }
+
             Result.success(Unit)
+        } catch (e: TimeoutCancellationException) {
+            Log.w(TAG, "Timed out while registering upload")
+            Result.failure(IllegalStateException("Timed out while saving the link. Check your internet connection."))
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to register upload in Firebase: ${t.message}")
             Result.failure(t)
@@ -425,6 +513,10 @@ class FirebaseDatabaseManager {
                             val fileSize = child.child("fileSize").getValue(Long::class.java) ?: 0L
                             val timestamp = child.child("timestamp").getValue(Long::class.java) ?: 0L
                             val isFreeTier = child.child("isFreeTier").getValue(Boolean::class.java) ?: false
+                            val mimeType = child.child("mimeType").getValue(String::class.java)
+                                ?: LinkRules.mimeFromExtension(fileName)
+                            val storagePath = child.child("storagePath").getValue(String::class.java) ?: ""
+                            val storageBucket = child.child("storageBucket").getValue(String::class.java) ?: ""
 
                             list.add(
                                 UploadRecord(
@@ -433,6 +525,9 @@ class FirebaseDatabaseManager {
                                     fileName = fileName,
                                     fileType = folder.replaceFirstChar { it.uppercase() },
                                     type = type,
+                                    mimeType = mimeType,
+                                    storageBucket = storageBucket,
+                                    storagePath = storagePath,
                                     supabaseUrl = supabaseUrl,
                                     originalSupabaseUrl = supabaseUrl,
                                     shortUrl = shortUrl,
@@ -473,6 +568,63 @@ class FirebaseDatabaseManager {
                 userNodeRef.removeEventListener(listener)
             } catch (_: Throwable) {}
         }
+    }
+
+    /**
+     * Reads a public link exactly like the website does (same node paths, same field fallbacks),
+     * so the in-app viewer shows what the browser shows.
+     */
+    suspend fun lookupPublicLink(id: String): PublicLinkLookup {
+        val db = getDatabase() ?: return PublicLinkLookup.Error
+        val paths = listOf(NODE_PUBLIC_LINKS, "photo_video_url/$NODE_PUBLIC_LINKS")
+        for ((index, path) in paths.withIndex()) {
+            try {
+                val snap = withTimeout(LOOKUP_TIMEOUT_MS) {
+                    db.getReference(path).child(id).get().await()
+                }
+                if (snap.exists()) {
+                    val record = parsePublicLinkRecord(snap)
+                    if (record != null) return PublicLinkLookup.Found(record)
+                }
+            } catch (e: TimeoutCancellationException) {
+                if (index == 0) return PublicLinkLookup.Error
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Log.w(TAG, "lookupPublicLink notice ($path): ${t.message}")
+                // An error on the secondary path must not hide a plain "not found".
+                if (index == 0) return PublicLinkLookup.Error
+            }
+        }
+        return PublicLinkLookup.Missing
+    }
+
+    private fun parsePublicLinkRecord(snap: DataSnapshot): PublicLinkRecord? {
+        fun text(vararg keys: String): String {
+            for (key in keys) {
+                val v = snap.child(key).value
+                if (v is String && v.isNotEmpty()) return v
+            }
+            return ""
+        }
+
+        val url = text("originalUrl", "supabaseUrl", "url")
+        if (url.isEmpty()) return null
+
+        val activeRaw = snap.child("active").value
+        val active = !(activeRaw == false ||
+                (activeRaw is Number && activeRaw.toLong() == 0L) ||
+                (activeRaw is String && (activeRaw == "0" || activeRaw.equals("false", ignoreCase = true))))
+
+        val type = text("fileType", "type").lowercase().ifEmpty { null }
+        return PublicLinkRecord(
+            url = url,
+            type = type,
+            mime = text("mimeType", "mime").lowercase(),
+            fileName = text("fileName"),
+            storagePath = text("storagePath"),
+            active = active
+        )
     }
 
     /**

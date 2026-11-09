@@ -264,7 +264,7 @@ fun InstalledAppsDialog(
                                             val data = result.getOrThrow()
                                             Toast.makeText(
                                                 context,
-                                                "${appInfo.appName} APK saved in Downloads folder!",
+                                                "${appInfo.appName}: ${data.downloadLocationDescription}",
                                                 Toast.LENGTH_LONG
                                             ).show()
                                             onApkExtracted(data.uploadUri, data.savedFileName)

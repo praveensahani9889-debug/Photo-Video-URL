@@ -1,7 +1,7 @@
 package com.praveen.studio.photovideo.url.data.model
 
 data class UserDetails(
-    var name: String = "Praveen",
+    var name: String = "",
     var totalPhotosUpload: Long = 0L,
     var totalVideosUpload: Long = 0L,
     var totalDocumentsUpload: Long = 0L,

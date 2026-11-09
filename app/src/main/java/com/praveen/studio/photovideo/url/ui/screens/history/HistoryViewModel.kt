@@ -22,10 +22,16 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val rawHistoryFlow = historyRepository.getHistoryFlow()
+    /** Every entry (unfiltered) - needed so "clear" can hide exactly what is listed. */
+    private val allHistory: StateFlow<List<UploadRecord>> = historyRepository.getHistoryFlow()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     val filteredHistory: StateFlow<List<UploadRecord>> = combine(
-        rawHistoryFlow,
+        allHistory,
         _selectedFilter,
         _searchQuery
     ) { history, filter, query ->
@@ -63,7 +69,7 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearHistory() {
         viewModelScope.launch {
-            historyRepository.clearLocalHistory()
+            historyRepository.clearHistory(allHistory.value.map { it.shortId })
         }
     }
 }

@@ -1,6 +1,8 @@
 package com.praveen.studio.photovideo.url.ui.screens.home
 
 import android.net.Uri
+import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,7 +37,6 @@ import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
 import com.praveen.studio.photovideo.url.ui.components.ApkOptionDialog
 import com.praveen.studio.photovideo.url.ui.components.AppHeader
-import com.praveen.studio.photovideo.url.ui.components.DeepLinkPreviewDialog
 import com.praveen.studio.photovideo.url.ui.components.InstalledAppsDialog
 import com.praveen.studio.photovideo.url.ui.components.LargeFileDialog
 import com.praveen.studio.photovideo.url.ui.components.SetupRequiredBanner
@@ -57,7 +59,6 @@ fun HomeScreen(
     val largeFileQueue by viewModel.largeFileQueue.collectAsState()
 
     val sharedMedia by IncomingIntentManager.sharedMedia.collectAsState()
-    val deepLinkShortId by IncomingIntentManager.deepLinkShortId.collectAsState()
 
     var showApkOptionDialog by remember { mutableStateOf(false) }
     var showInstalledAppsDialog by remember { mutableStateOf(false) }
@@ -68,14 +69,34 @@ fun HomeScreen(
         viewModel.refreshConfigStatus()
     }
 
+    val context = LocalContext.current
+
+    // Android 13+ has the system photo picker. On older versions (Android 9-12) the "photo picker" contract
+    // depends on Google Play services / OEM pickers and can silently show nothing, so the plain system file
+    // picker (Storage Access Framework) is used there. It needs no storage permission.
+    val useSystemPhotoPicker = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
+
+    fun launchPicker(block: () -> Unit) {
+        try {
+            block()
+        } catch (e: Exception) {
+            Toast.makeText(context, "Cannot open the file picker: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     // 0. Free Trial Gallery Photo Picker (up to 3 photos before setup)
     val freeTrialGalleryPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri?.let { viewModel.handleFreeTrialGalleryPhoto(it) }
     }
+    val legacyFreeTrialPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.handleFreeTrialGalleryPhoto(it) }
+    }
 
-    // 1. Multiple Photos Only Picker (Android Photo Picker strictly ImageOnly)
+    // 1. Multiple Photos Only Picker
     val multipleImagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 20)
     ) { uris: List<Uri> ->
@@ -83,13 +104,27 @@ fun HomeScreen(
             viewModel.handleSelectedUris(uris, MediaCategory.IMAGES)
         }
     }
+    val legacyImagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.handleSelectedUris(uris.take(20), MediaCategory.IMAGES)
+        }
+    }
 
-    // 2. Multiple Videos Only Picker (Android Photo Picker strictly VideoOnly)
+    // 2. Multiple Videos Only Picker
     val multipleVideoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             viewModel.handleSelectedUris(uris, MediaCategory.VIDEOS)
+        }
+    }
+    val legacyVideoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.handleSelectedUris(uris.take(10), MediaCategory.VIDEOS)
         }
     }
 
@@ -139,9 +174,15 @@ fun HomeScreen(
                     SetupRequiredBanner(
                         freeUploadsRemaining = userDetails.freeUploadsRemaining,
                         onSelectFreePhotos = {
-                            freeTrialGalleryPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
+                            launchPicker {
+                                if (useSystemPhotoPicker) {
+                                    freeTrialGalleryPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                } else {
+                                    legacyFreeTrialPicker.launch(arrayOf("image/*"))
+                                }
+                            }
                         },
                         onConfigureSettings = onNavigateToSettings
                     )
@@ -181,9 +222,15 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.IMAGES },
                     onClick = {
-                        multipleImagePicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
+                        launchPicker {
+                            if (useSystemPhotoPicker) {
+                                multipleImagePicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            } else {
+                                legacyImagePicker.launch(arrayOf("image/*"))
+                            }
+                        }
                     }
                 )
             }
@@ -197,9 +244,15 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.VIDEOS },
                     onClick = {
-                        multipleVideoPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                        )
+                        launchPicker {
+                            if (useSystemPhotoPicker) {
+                                multipleVideoPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                                )
+                            } else {
+                                legacyVideoPicker.launch(arrayOf("video/*"))
+                            }
+                        }
                     }
                 )
             }
@@ -213,6 +266,7 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.DOCUMENTS },
                     onClick = {
+                        launchPicker {
                         documentPicker.launch(
                             arrayOf(
                                 "application/pdf",
@@ -225,6 +279,7 @@ fun HomeScreen(
                                 "application/vnd.openxmlformats-officedocument.presentationml.presentation"
                             )
                         )
+                        }
                     }
                 )
             }
@@ -238,6 +293,7 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.FILES },
                     onClick = {
+                        launchPicker {
                         zipFilePicker.launch(
                             arrayOf(
                                 "application/zip",
@@ -249,6 +305,7 @@ fun HomeScreen(
                                 "application/octet-stream"
                             )
                         )
+                        }
                     }
                 )
             }
@@ -278,12 +335,14 @@ fun HomeScreen(
         ApkOptionDialog(
             onDismiss = { showApkOptionDialog = false },
             onUploadStorageApk = {
-                apkPicker.launch(
-                    arrayOf(
-                        "application/vnd.android.package-archive",
-                        "application/octet-stream"
+                launchPicker {
+                    apkPicker.launch(
+                        arrayOf(
+                            "application/vnd.android.package-archive",
+                            "application/octet-stream"
+                        )
                     )
-                )
+                }
             },
             onExtractInstalledApp = {
                 showInstalledAppsDialog = true
@@ -341,8 +400,9 @@ fun HomeScreen(
             sharedMedia = incoming,
             isConfigured = isConfigured,
             freeUploadsRemaining = userDetails.freeUploadsRemaining,
-            onStartUpload = { uris, category ->
-                viewModel.handleSelectedUris(uris, category)
+            onStartUpload = { uris, _ ->
+                // every shared file is categorised on its own (a share can mix photos, videos and files)
+                viewModel.handleSharedUris(uris)
             },
             onStartFreeTrial = { uri ->
                 viewModel.handleFreeTrialGalleryPhoto(uri)
@@ -350,16 +410,6 @@ fun HomeScreen(
             onConfigureSettings = onNavigateToSettings,
             onDismiss = {
                 IncomingIntentManager.clearSharedMedia()
-            }
-        )
-    }
-
-    // Deep Link Preview Dialog for ivu.gt.tc links
-    deepLinkShortId?.let { shortId ->
-        DeepLinkPreviewDialog(
-            shortId = shortId,
-            onDismiss = {
-                IncomingIntentManager.clearDeepLink()
             }
         )
     }

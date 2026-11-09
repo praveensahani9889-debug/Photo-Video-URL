@@ -7,6 +7,8 @@ import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.domain.repository.SettingsRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,7 +35,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val userDetails: StateFlow<UserDetails> = settingsRepository.observeUserDetails()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UserDetails())
 
-    private val _userName = MutableStateFlow("Praveen")
+    private val _userName = MutableStateFlow("")
     val userName: StateFlow<String> = _userName.asStateFlow()
 
     private val _projectUrl = MutableStateFlow("")
@@ -69,9 +71,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _isSaved.value = config.isConfigured
     }
 
+    private var userNameJob: Job? = null
+
     fun setUserName(name: String) {
         _userName.value = name
-        viewModelScope.launch {
+        // Save once the user stops typing instead of writing to Firebase on every key press.
+        userNameJob?.cancel()
+        userNameJob = viewModelScope.launch {
+            delay(700)
             settingsRepository.saveUserName(name)
         }
     }
@@ -99,6 +106,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         )
         viewModelScope.launch {
             settingsRepository.saveConfig(config, _userName.value.trim())
+            // Show the normalised URL that was really stored
+            _projectUrl.value = config.cleanUrl.ifEmpty { config.projectUrl }
             _isSaved.value = config.isConfigured
         }
     }
@@ -142,5 +151,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _bucketName.value = "media"
         _isSaved.value = false
         _testState.value = ConnectionTestState.Idle
+        viewModelScope.launch {
+            settingsRepository.clearRemoteCredentials()
+        }
     }
 }

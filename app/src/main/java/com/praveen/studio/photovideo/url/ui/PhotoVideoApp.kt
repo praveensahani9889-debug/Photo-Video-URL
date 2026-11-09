@@ -20,6 +20,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
+import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
+import com.praveen.studio.photovideo.url.ui.components.MediaViewerScreen
 import com.praveen.studio.photovideo.url.ui.navigation.Screen
 import com.praveen.studio.photovideo.url.ui.screens.history.HistoryScreen
 import com.praveen.studio.photovideo.url.ui.screens.home.HomeScreen
@@ -41,7 +44,11 @@ fun PhotoVideoApp() {
     val preferencesManager = remember { PreferencesManager(context) }
     val themePreference by preferencesManager.themeFlow.collectAsState(initial = ThemePreference.SYSTEM)
 
-    var currentScreen by remember { mutableStateOf(Screen.HOME) }
+    var currentScreen by rememberSaveable { mutableStateOf(Screen.HOME) }
+
+    // A tapped https://ivu.gt.tc/<id> link: shown here (not inside the Home screen) so it opens on top of
+    // whichever tab is currently visible.
+    val deepLinkShortId by IncomingIntentManager.deepLinkShortId.collectAsState()
 
     // BackHandler: Return to Home screen if user presses system back on History or Settings
     BackHandler(enabled = currentScreen != Screen.HOME) {
@@ -49,6 +56,7 @@ fun PhotoVideoApp() {
     }
 
     PhotoVideoUrlTheme(themePreference = themePreference) {
+        Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             bottomBar = {
                 NavigationBar(
@@ -111,6 +119,14 @@ fun PhotoVideoApp() {
                     }
                 }
             }
+        }
+
+        deepLinkShortId?.let { shortId ->
+            MediaViewerScreen(
+                shortId = shortId,
+                onClose = { IncomingIntentManager.clearDeepLink() }
+            )
+        }
         }
     }
 }

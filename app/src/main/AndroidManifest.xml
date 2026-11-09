@@ -28,6 +28,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:label="@string/app_name"
             android:theme="@style/Theme.MyApplication">
             <!-- Launcher -->
@@ -36,13 +37,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep Link for ivu.gt.tc -->
+            <!-- Deep Link for ivu.gt.tc media links only (/image_..., /video_..., /document_..., /file_..., /apk_...).
+                 Info pages such as /privacy or /about keep opening in the browser. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="ivu.gt.tc" />
-                <data android:scheme="http" android:host="ivu.gt.tc" />
+                <data android:scheme="https" />
+                <data android:scheme="http" />
+                <data android:host="ivu.gt.tc" />
+                <data android:pathPrefix="/image_" />
+                <data android:pathPrefix="/video_" />
+                <data android:pathPrefix="/document_" />
+                <data android:pathPrefix="/file_" />
+                <data android:pathPrefix="/apk_" />
             </intent-filter>
 
             <!-- Share Target: Receive single item from other apps -->
