@@ -467,6 +467,8 @@ private fun WebImageViewer(url: String, modifier: Modifier = Modifier) {
                 settings.displayZoomControls = false
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
+                // big SVG / GIF files must not pile up in the WebView disk cache
+                settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
                 setBackgroundColor(0xFF1E1E1E.toInt())
                 webViewClient = WebViewClient()
                 loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)

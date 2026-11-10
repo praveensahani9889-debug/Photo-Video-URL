@@ -49,6 +49,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,7 +70,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.praveen.studio.photovideo.url.data.model.InstalledAppInfo
 import com.praveen.studio.photovideo.url.domain.util.ApkExtractorHelper
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun InstalledAppsDialog(
@@ -309,9 +312,17 @@ private fun InstalledAppCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // App Icon
-            val iconBitmap = remember(appInfo.icon) {
-                appInfo.icon?.toSafeBitmap()
+            val appContext = LocalContext.current
+            val iconState = produceState<Bitmap?>(initialValue = null, appInfo.packageName) {
+                value = withContext(Dispatchers.IO) {
+                    try {
+                        appContext.packageManager.getApplicationIcon(appInfo.packageName).toSafeBitmap()
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
             }
+            val iconBitmap = iconState.value
 
             if (iconBitmap != null) {
                 Image(
@@ -404,12 +415,11 @@ private fun InstalledAppCard(
  * Converts any Android Drawable (Adaptive, Vector, Bitmap) into a safe Bitmap.
  */
 private fun Drawable.toSafeBitmap(): Bitmap {
-    if (this is BitmapDrawable && bitmap != null) return bitmap
-    val w = if (intrinsicWidth > 0) intrinsicWidth else 72
-    val h = if (intrinsicHeight > 0) intrinsicHeight else 72
-    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    // Icons are shown at 42dp, so a 96px bitmap is plenty (full size adaptive icons waste memory).
+    val size = 96
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
-    setBounds(0, 0, canvas.width, canvas.height)
+    setBounds(0, 0, size, size)
     draw(canvas)
     return bitmap
 }

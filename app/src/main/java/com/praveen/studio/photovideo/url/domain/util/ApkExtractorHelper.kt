@@ -68,12 +68,6 @@ object ApkExtractorHelper {
                     pkg.packageName
                 }
 
-                val icon = try {
-                    pm.getApplicationIcon(appInfo)
-                } catch (_: Exception) {
-                    null
-                }
-
                 val versionName = pkg.versionName ?: "1.0"
 
                 appList.add(
@@ -84,7 +78,8 @@ object ApkExtractorHelper {
                         sourceDir = sourceDir,
                         sizeBytes = file.length(),
                         isSystemApp = false,
-                        icon = icon,
+                        // icons are loaded lazily by the list (decoding every icon here made the dialog slow)
+                        icon = null,
                         splitSourceDirs = appInfo.splitSourceDirs?.toList().orEmpty()
                     )
                 )

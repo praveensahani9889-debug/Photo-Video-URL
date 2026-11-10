@@ -43,7 +43,9 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      // R8 removes unused code and resources: much smaller APK (see proguard-rules.pro)
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
@@ -53,6 +55,13 @@ android {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
+    }
+    // Small, optimised APK that the GitHub workflow can build without the private upload key.
+    create("optimized") {
+      initWith(getByName("release"))
+      isDebuggable = false
+      signingConfig = signingConfigs.getByName("debugConfig")
+      matchingFallbacks += listOf("release")
     }
   }
   compileOptions {
@@ -103,10 +112,10 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   // implementation(libs.androidx.navigation.compose)
-  implementation(libs.androidx.room.ktx)
-  implementation(libs.androidx.room.runtime)
+  // (not used by the app code, removed from the APK) implementation(libs.androidx.room.ktx)
+  // (not used by the app code, removed from the APK) implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
-  implementation(libs.converter.moshi)
+  // (not used by the app code, removed from the APK) implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   implementation(libs.firebase.database)
   // implementation(libs.firebase.firestore)
@@ -117,17 +126,17 @@ dependencies {
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  implementation(libs.firebase.appcheck.recaptcha)
-  implementation(libs.firebase.appcheck.debug)
+  // (not used by the app code, removed from the APK) implementation(libs.firebase.appcheck.recaptcha)
+  // (not used by the app code, removed from the APK) implementation(libs.firebase.appcheck.debug)
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.androidx.security.crypto)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
-  implementation(libs.logging.interceptor)
-  implementation(libs.moshi.kotlin)
+  // (not used by the app code, removed from the APK) implementation(libs.logging.interceptor)
+  // (not used by the app code, removed from the APK) implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
-  implementation(libs.retrofit)
+  // (not used by the app code, removed from the APK) implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
@@ -141,6 +150,6 @@ dependencies {
   androidTestImplementation(libs.androidx.runner)
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
-  "ksp"(libs.androidx.room.compiler)
-  "ksp"(libs.moshi.kotlin.codegen)
+  // (not used by the app code, removed from the APK) "ksp"(libs.androidx.room.compiler)
+  // (not used by the app code, removed from the APK) "ksp"(libs.moshi.kotlin.codegen)
 }

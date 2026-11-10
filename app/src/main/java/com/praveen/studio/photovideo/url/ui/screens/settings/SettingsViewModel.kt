@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.model.UserDetails
+import com.praveen.studio.photovideo.url.data.remote.FirebaseCheckLine
+import com.praveen.studio.photovideo.url.domain.util.CacheCleaner
 import com.praveen.studio.photovideo.url.domain.repository.SettingsRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -13,14 +15,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 sealed interface ConnectionTestState {
     data object Idle : ConnectionTestState
     data object Testing : ConnectionTestState
     data class Success(val message: String) : ConnectionTestState
     data class Error(val message: String) : ConnectionTestState
+}
+
+sealed interface FirebaseCheckState {
+    data object Idle : FirebaseCheckState
+    data object Checking : FirebaseCheckState
+    data class Done(val lines: List<FirebaseCheckLine>) : FirebaseCheckState
 }
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -53,7 +63,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _isSaved = MutableStateFlow(false)
     val isSaved: StateFlow<Boolean> = _isSaved.asStateFlow()
 
+    private val _firebaseCheck = MutableStateFlow<FirebaseCheckState>(FirebaseCheckState.Idle)
+    val firebaseCheck: StateFlow<FirebaseCheckState> = _firebaseCheck.asStateFlow()
+
+    private val _cacheBytes = MutableStateFlow(0L)
+    val cacheBytes: StateFlow<Long> = _cacheBytes.asStateFlow()
+
     init {
+        refreshCacheSize()
         loadConfig()
         viewModelScope.launch {
             val details = settingsRepository.getUserDetails()
@@ -141,6 +158,39 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun clearHistoryCache() {
         viewModelScope.launch {
             settingsRepository.clearHistoryCache()
+        }
+    }
+
+    fun refreshCacheSize() {
+        viewModelScope.launch {
+            _cacheBytes.value = withContext(Dispatchers.IO) {
+                CacheCleaner.sizeBytes(getApplication<Application>())
+            }
+        }
+    }
+
+    /** Clears the local history copy and every cached file. [onFinished] gets the freed bytes. */
+    fun clearAllCache(onFinished: (Long) -> Unit) {
+        viewModelScope.launch {
+            settingsRepository.clearHistoryCache()
+            val freed = CacheCleaner.clearAll(getApplication<Application>())
+            _cacheBytes.value = withContext(Dispatchers.IO) {
+                CacheCleaner.sizeBytes(getApplication<Application>())
+            }
+            onFinished(freed)
+        }
+    }
+
+    fun checkFirebase() {
+        if (_firebaseCheck.value is FirebaseCheckState.Checking) return
+        viewModelScope.launch {
+            _firebaseCheck.value = FirebaseCheckState.Checking
+            val lines = try {
+                settingsRepository.checkFirebase()
+            } catch (t: Throwable) {
+                listOf(FirebaseCheckLine(false, "Check failed: ${t.message ?: "unknown error"}"))
+            }
+            _firebaseCheck.value = FirebaseCheckState.Done(lines)
         }
     }
 

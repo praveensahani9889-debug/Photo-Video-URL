@@ -7,6 +7,7 @@ import com.praveen.studio.photovideo.url.data.local.SecureStorageManager
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.model.UserDetails
+import com.praveen.studio.photovideo.url.data.remote.FirebaseCheckLine
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
 import kotlinx.coroutines.flow.Flow
@@ -78,5 +79,9 @@ class SettingsRepository(
 
     suspend fun clearHistoryCache() {
         preferencesManager.clearHistoryCache()
+    }
+
+    suspend fun checkFirebase(): List<FirebaseCheckLine> {
+        return firebaseDbManager.runConnectionCheck(installationId)
     }
 }

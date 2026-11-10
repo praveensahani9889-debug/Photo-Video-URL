@@ -246,16 +246,24 @@ class UploadRepository(
             )
             if (dbResult.isSuccess) break
             Log.w(TAG, "Firebase register attempt $attempt failed: ${dbResult.exceptionOrNull()?.message}")
+            // Rules problems do not go away by retrying
+            if (FirebaseDatabaseManager.isPermissionDenied(dbResult.exceptionOrNull())) break
             if (attempt < 3) delay(attempt * 1000L)
         }
 
         if (dbResult.isFailure) {
+            val blockedByRules = FirebaseDatabaseManager.isPermissionDenied(dbResult.exceptionOrNull())
             send(
                 UploadStatus.Failed(
                     item.name,
-                    "The file was uploaded but its short link could not be saved " +
-                        "(${dbResult.exceptionOrNull()?.message ?: "unknown error"}). " +
-                        "Check your internet connection and try again.",
+                    if (blockedByRules) {
+                        "The file is in Supabase, but Firebase refused to save the short link. " +
+                            FirebaseDatabaseManager.PERMISSION_DENIED_HINT
+                    } else {
+                        "The file was uploaded but its short link could not be saved " +
+                            "(${dbResult.exceptionOrNull()?.message ?: "unknown error"}). " +
+                            "Check your internet connection and try again."
+                    },
                     retryable = true
                 )
             )

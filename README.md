@@ -18,13 +18,15 @@ A production-oriented Android application that enables users to select photos, v
 
 ## 🌟 Key Features
 
+0. **In-app gallery & file browser:** the app asks for the storage permission once (Android 9-12: *Storage*; Android 13+: *Photos and videos*; Android 11+ documents/files/APKs: *All files access*) and lists photos, videos, documents, archives and APKs itself. "Other folders" opens the system picker as a fallback.
+
 1. **Multi-Category Media Uploads (Locked until Supabase is connected):**
-   - **Photos (Images):** PNG, JPG, WEBP, GIF, SVG (Strictly photos only via Android Photo Picker)
-   - **Videos:** MP4, MKV, MOV, WEBM (Strictly videos only via Android Photo Picker)
+   - **Photos (Images):** PNG, JPG, WEBP, GIF, SVG (photos only, picked in the in-app gallery)
+   - **Videos:** MP4, MKV, MOV, WEBM (videos only, picked in the in-app gallery)
    - **Documents:** PDF, DOC, DOCX, TXT, XLS, PPT (Strictly documents)
    - **Files:** ZIP, 7Z, TAR, RAR, and folder archives only
    - **APKs:** 2 Modes:
-     - *Upload Device APK File* (Pick `.apk` file from phone storage)
+     - *Upload Device APK File* (pick `.apk` files in the in-app file browser)
      - *Extract Installed App APK* (Lists installed apps on device, extracts `.apk` into user's public `Downloads` folder, and uploads it directly)
 
 2. **Supabase Storage Integration:**
@@ -219,31 +221,29 @@ public_links/
         └── active: true
 ```
 
-### Production Security Rules (Firebase Console)
-Configure these rules in your Firebase Console under **Realtime Database > Rules**:
+### Security Rules (Firebase Console)
+Publish the rules of **`firebase-rules.json`** (same folder as this README) under
+**Firebase Console > Realtime Database > Rules > Publish**:
 
 ```json
 {
   "rules": {
-    "user": {
-      "$installationId": {
-        ".read": true,
-        ".write": true
-      }
-    },
-    "app": {
-      ".read": true,
-      ".write": true
-    },
-    "public_links": {
-      ".read": true,
-      "$shortId": {
-        ".write": true
-      }
-    }
+    "public_links": { "$id": { ".read": true, ".write": "!data.exists()" } },
+    "photo_video_url": { "public_links": { "$id": { ".read": true } } },
+    "user": { "$uid": { ".read": true, ".write": true } },
+    "app": { ".read": true, ".write": false }
   }
 }
 ```
+
+* `public_links` is **create-only**: the app can create a short link, nobody can overwrite an existing one.
+* `user/<installationId>` holds the upload history of one installation (the app has no login).
+* `app` is read-only; fill `app/backend` (free-trial Supabase) from the console.
+* **Do not** use rules that only open `photo_video_url/public_links`: the app then cannot save links or read history.
+
+**Upload works in Supabase but no link / nothing in Firebase?** Open the app > Settings > *Check Firebase Connection*.
+A line that says *BLOCKED by Firebase rules* means the rules above are not published yet. Also keep
+**App Check enforcement OFF** for Realtime Database (the app does not use App Check).
 
 ---
 

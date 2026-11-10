@@ -19,3 +19,24 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ---------------------------------------------------------------------------
+# Photo Video URL
+# ---------------------------------------------------------------------------
+-keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
+
+# Data classes that are written to / read from Firebase or stored locally keep their member names
+-keep class com.praveen.studio.photovideo.url.data.model.** { *; }
+
+# androidx.security:security-crypto (Tink) reads protobuf fields by reflection
+-keepclassmembers class * extends com.google.crypto.tink.shaded.protobuf.GeneratedMessageLite {
+    <fields>;
+}
+
+# Optional classes that libraries mention but the app does not ship
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
+-dontwarn org.joda.time.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**

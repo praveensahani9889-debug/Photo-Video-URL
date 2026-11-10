@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
+import com.praveen.studio.photovideo.url.domain.util.CacheCleaner
 import com.praveen.studio.photovideo.url.ui.theme.AccentAmber
 import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
 import com.praveen.studio.photovideo.url.ui.theme.AccentRose
@@ -104,6 +105,8 @@ fun SettingsScreen(
     val themePreference by viewModel.themePreference.collectAsState()
     val userName by viewModel.userName.collectAsState()
     val userDetails by viewModel.userDetails.collectAsState()
+    val firebaseCheck by viewModel.firebaseCheck.collectAsState()
+    val cacheBytes by viewModel.cacheBytes.collectAsState()
 
     var isKeyVisible by remember { mutableStateOf(false) }
     var isGuideExpanded by remember { mutableStateOf(false) }
@@ -661,18 +664,62 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Clear Cache Button
+                        // Clear Cache Button (history copy + temporary files + image previews)
+                        Text(
+                            text = "App cache: ${CacheCleaner.format(cacheBytes)} (temporary files and image previews)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
                         OutlinedButton(
                             onClick = {
-                                viewModel.clearHistoryCache()
-                                Toast.makeText(context, "Local history cache cleared", Toast.LENGTH_SHORT).show()
+                                viewModel.clearAllCache { freed ->
+                                    Toast.makeText(
+                                        context,
+                                        "Cache cleared (${CacheCleaner.format(freed)} freed)",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
                             },
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(imageVector = Icons.Default.DeleteSweep, contentDescription = "Clear Cache", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Clear Local History Cache")
+                            Text("Clear Cache & Local History")
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Firebase self check: shows which step is blocked (rules / internet)
+                        OutlinedButton(
+                            onClick = { viewModel.checkFirebase() },
+                            enabled = firebaseCheck !is FirebaseCheckState.Checking,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.NetworkCheck, contentDescription = "Check Firebase", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (firebaseCheck is FirebaseCheckState.Checking) "Checking Firebase..." else "Check Firebase Connection")
+                        }
+                        (firebaseCheck as? FirebaseCheckState.Done)?.let { done ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            done.lines.forEach { line ->
+                                Text(
+                                    text = (if (line.ok) "\u2713 " else "\u2717 ") + line.text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (line.ok) AccentEmerald else AccentRose
+                                )
+                            }
+                            if (done.lines.any { !it.ok }) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "If a step says BLOCKED, publish the Firebase rules from README.md " +
+                                        "(Firebase Console > Realtime Database > Rules).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))

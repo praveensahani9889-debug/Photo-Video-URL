@@ -1,0 +1,25 @@
+{
+  "rules": {
+    "public_links": {
+      "$id": {
+        ".read": true,
+        ".write": "!data.exists()"
+      }
+    },
+    "photo_video_url": {
+      "public_links": {
+        "$id": { ".read": true }
+      }
+    },
+    "user": {
+      "$uid": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "app": {
+      ".read": true,
+      ".write": false
+    }
+  }
+}

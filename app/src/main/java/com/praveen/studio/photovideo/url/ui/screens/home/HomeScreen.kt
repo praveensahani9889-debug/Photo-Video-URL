@@ -42,6 +42,7 @@ import com.praveen.studio.photovideo.url.ui.components.LargeFileDialog
 import com.praveen.studio.photovideo.url.ui.components.SetupRequiredBanner
 import com.praveen.studio.photovideo.url.ui.components.SetupSupabaseDialog
 import com.praveen.studio.photovideo.url.ui.components.SharedUploadDialog
+import com.praveen.studio.photovideo.url.ui.components.StoragePickerDialog
 import com.praveen.studio.photovideo.url.ui.components.UploadCategoryCard
 import com.praveen.studio.photovideo.url.ui.components.UploadProgressDialog
 
@@ -64,6 +65,9 @@ fun HomeScreen(
     var showInstalledAppsDialog by remember { mutableStateOf(false) }
     // Category the user tapped while Supabase is not set up yet -> shows "Set up your Supabase"
     var setupPromptFor by remember { mutableStateOf<MediaCategory?>(null) }
+    // In-app picker (direct storage permission). pickerTrial = the single free-trial photo.
+    var pickerCategory by remember { mutableStateOf<MediaCategory?>(null) }
+    var pickerTrial by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshConfigStatus()
@@ -71,9 +75,9 @@ fun HomeScreen(
 
     val context = LocalContext.current
 
-    // Android 13+ has the system photo picker. On older versions (Android 9-12) the "photo picker" contract
-    // depends on Google Play services / OEM pickers and can silently show nothing, so the plain system file
-    // picker (Storage Access Framework) is used there. It needs no storage permission.
+    // System pickers: only used as the "Other folders" fallback. The main way to pick files is the in-app
+    // picker (StoragePickerDialog) that reads the device storage directly with the storage permission.
+    // Android 13+ has the system photo picker; older versions use the plain system file picker.
     val useSystemPhotoPicker = remember { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
 
     fun launchPicker(block: () -> Unit) {
@@ -149,6 +153,55 @@ fun HomeScreen(
         uri?.let { viewModel.handleSelectedUris(listOf(it), MediaCategory.APKS) }
     }
 
+    // The system pickers above stay as the "Other folders" fallback of the in-app picker.
+    fun launchSystemPicker(category: MediaCategory, trial: Boolean) {
+        launchPicker {
+            when {
+                trial && useSystemPhotoPicker -> freeTrialGalleryPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+                trial -> legacyFreeTrialPicker.launch(arrayOf("image/*"))
+                category == MediaCategory.IMAGES && useSystemPhotoPicker -> multipleImagePicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+                category == MediaCategory.IMAGES -> legacyImagePicker.launch(arrayOf("image/*"))
+                category == MediaCategory.VIDEOS && useSystemPhotoPicker -> multipleVideoPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                )
+                category == MediaCategory.VIDEOS -> legacyVideoPicker.launch(arrayOf("video/*"))
+                category == MediaCategory.DOCUMENTS -> documentPicker.launch(
+                    arrayOf(
+                        "application/pdf",
+                        "application/msword",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "text/plain",
+                        "application/vnd.ms-excel",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.ms-powerpoint",
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    )
+                )
+                category == MediaCategory.APKS -> apkPicker.launch(
+                    arrayOf(
+                        "application/vnd.android.package-archive",
+                        "application/octet-stream"
+                    )
+                )
+                else -> zipFilePicker.launch(
+                    arrayOf(
+                        "application/zip",
+                        "application/x-zip-compressed",
+                        "application/x-7z-compressed",
+                        "application/x-tar",
+                        "application/gzip",
+                        "application/x-rar-compressed",
+                        "application/octet-stream"
+                    )
+                )
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             AppHeader(
@@ -174,15 +227,8 @@ fun HomeScreen(
                     SetupRequiredBanner(
                         freeUploadsRemaining = userDetails.freeUploadsRemaining,
                         onSelectFreePhotos = {
-                            launchPicker {
-                                if (useSystemPhotoPicker) {
-                                    freeTrialGalleryPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                } else {
-                                    legacyFreeTrialPicker.launch(arrayOf("image/*"))
-                                }
-                            }
+                            pickerTrial = true
+                            pickerCategory = MediaCategory.IMAGES
                         },
                         onConfigureSettings = onNavigateToSettings
                     )
@@ -222,15 +268,8 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.IMAGES },
                     onClick = {
-                        launchPicker {
-                            if (useSystemPhotoPicker) {
-                                multipleImagePicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            } else {
-                                legacyImagePicker.launch(arrayOf("image/*"))
-                            }
-                        }
+                        pickerTrial = false
+                        pickerCategory = MediaCategory.IMAGES
                     }
                 )
             }
@@ -244,15 +283,8 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.VIDEOS },
                     onClick = {
-                        launchPicker {
-                            if (useSystemPhotoPicker) {
-                                multipleVideoPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                                )
-                            } else {
-                                legacyVideoPicker.launch(arrayOf("video/*"))
-                            }
-                        }
+                        pickerTrial = false
+                        pickerCategory = MediaCategory.VIDEOS
                     }
                 )
             }
@@ -266,20 +298,8 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.DOCUMENTS },
                     onClick = {
-                        launchPicker {
-                        documentPicker.launch(
-                            arrayOf(
-                                "application/pdf",
-                                "application/msword",
-                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                "text/plain",
-                                "application/vnd.ms-excel",
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                "application/vnd.ms-powerpoint",
-                                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                            )
-                        )
-                        }
+                        pickerTrial = false
+                        pickerCategory = MediaCategory.DOCUMENTS
                     }
                 )
             }
@@ -293,19 +313,8 @@ fun HomeScreen(
                     needsSetup = !isConfigured,
                     onSetupNeeded = { setupPromptFor = MediaCategory.FILES },
                     onClick = {
-                        launchPicker {
-                        zipFilePicker.launch(
-                            arrayOf(
-                                "application/zip",
-                                "application/x-zip-compressed",
-                                "application/x-7z-compressed",
-                                "application/x-tar",
-                                "application/gzip",
-                                "application/x-rar-compressed",
-                                "application/octet-stream"
-                            )
-                        )
-                        }
+                        pickerTrial = false
+                        pickerCategory = MediaCategory.FILES
                     }
                 )
             }
@@ -335,17 +344,42 @@ fun HomeScreen(
         ApkOptionDialog(
             onDismiss = { showApkOptionDialog = false },
             onUploadStorageApk = {
-                launchPicker {
-                    apkPicker.launch(
-                        arrayOf(
-                            "application/vnd.android.package-archive",
-                            "application/octet-stream"
-                        )
-                    )
-                }
+                pickerTrial = false
+                pickerCategory = MediaCategory.APKS
             },
             onExtractInstalledApp = {
                 showInstalledAppsDialog = true
+            }
+        )
+    }
+
+    // In-app gallery / file browser (direct storage permission)
+    pickerCategory?.let { category ->
+        val trial = pickerTrial
+        StoragePickerDialog(
+            category = category,
+            maxSelection = when {
+                trial -> 1
+                category == MediaCategory.IMAGES -> 20
+                else -> 10
+            },
+            onDismiss = {
+                pickerCategory = null
+                pickerTrial = false
+            },
+            onConfirm = { uris ->
+                pickerCategory = null
+                pickerTrial = false
+                if (trial) {
+                    uris.firstOrNull()?.let { viewModel.handleFreeTrialGalleryPhoto(it) }
+                } else if (uris.isNotEmpty()) {
+                    viewModel.handleSelectedUris(uris, category)
+                }
+            },
+            onUseSystemPicker = {
+                pickerCategory = null
+                pickerTrial = false
+                launchSystemPicker(category, trial)
             }
         )
     }

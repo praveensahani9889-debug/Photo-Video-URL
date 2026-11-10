@@ -15,14 +15,21 @@ import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeout
 import java.security.SecureRandom
 import kotlin.coroutines.cancellation.CancellationException
+
+/** One line of the Firebase self check shown in Settings. */
+data class FirebaseCheckLine(val ok: Boolean, val text: String)
 
 class FirebaseDatabaseManager {
     companion object {
@@ -43,6 +50,28 @@ class FirebaseDatabaseManager {
         /** The app/ defaults only need to be checked once per app process, not on every screen. */
         @Volatile
         private var metadataChecked = false
+
+        const val PERMISSION_DENIED_HINT =
+            "Firebase rules block saving. Open Firebase Console > Realtime Database > Rules, " +
+                "publish the rules from README.md (public_links + user + app) and try again."
+
+        /** True when Firebase refused the request because of the database security rules. */
+        fun isPermissionDenied(t: Throwable?): Boolean {
+            var current = t
+            var depth = 0
+            while (current != null && depth < 6) {
+                if (current.message.orEmpty().contains("permission denied", ignoreCase = true)) return true
+                current = current.cause
+                depth++
+            }
+            return false
+        }
+
+        /** Short text for the user instead of a bare "Permission denied". */
+        fun describeError(t: Throwable?): String = when {
+            isPermissionDenied(t) -> PERMISSION_DENIED_HINT
+            else -> t?.message ?: "unknown error"
+        }
     }
 
     private val random = SecureRandom()
@@ -478,81 +507,39 @@ class FirebaseDatabaseManager {
             throw e
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to register upload in Firebase: ${t.message}")
-            Result.failure(t)
+            Result.failure(IllegalStateException(describeError(t), t))
         }
     }
 
     /**
      * Observes all user uploads across images, videos, documents, files, and apks in real-time.
+     * Firebase delivers snapshots on the main thread; parsing them (hundreds of records) happens on a
+     * background dispatcher so scrolling and typing stay smooth.
      */
-    fun observeAllUserUploads(installationId: String): Flow<List<UploadRecord>> = callbackFlow {
+    fun observeAllUserUploads(installationId: String): Flow<List<UploadRecord>> =
+        observeUserSnapshots(installationId)
+            .conflate()
+            .map { snapshot ->
+                if (snapshot == null) emptyList() else parseUploads(snapshot, installationId)
+            }
+            .flowOn(Dispatchers.Default)
+
+    private fun observeUserSnapshots(installationId: String): Flow<DataSnapshot?> = callbackFlow {
         val userNodeRef = userRef(installationId)
         if (userNodeRef == null) {
-            trySend(emptyList())
+            trySend(null)
             awaitClose { }
             return@callbackFlow
         }
 
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val list = mutableListOf<UploadRecord>()
-
-                val categoryFolders = listOf("images", "videos", "documents", "files", "apks")
-                for (folder in categoryFolders) {
-                    val folderSnapshot = snapshot.child(folder)
-                    for (child in folderSnapshot.children) {
-                        try {
-                            val shortId = child.key ?: ""
-                            val fileName = child.child("fileName").getValue(String::class.java) ?: shortId
-                            val uploadDate = child.child("uploadDate").getValue(String::class.java) ?: ""
-                            val uploadTime = child.child("uploadTime").getValue(String::class.java) ?: ""
-                            val type = child.child("fileType").getValue(String::class.java)
-                                ?: child.child("type").getValue(String::class.java) ?: folder
-                            val supabaseUrl = child.child("supabaseUrl").getValue(String::class.java) ?: ""
-                            val shortUrl = child.child("shortUrl").getValue(String::class.java) ?: "https://ivu.gt.tc/$shortId"
-                            val fileSize = child.child("fileSize").getValue(Long::class.java) ?: 0L
-                            val timestamp = child.child("timestamp").getValue(Long::class.java) ?: 0L
-                            val isFreeTier = child.child("isFreeTier").getValue(Boolean::class.java) ?: false
-                            val mimeType = child.child("mimeType").getValue(String::class.java)
-                                ?: LinkRules.mimeFromExtension(fileName)
-                            val storagePath = child.child("storagePath").getValue(String::class.java) ?: ""
-                            val storageBucket = child.child("storageBucket").getValue(String::class.java) ?: ""
-
-                            list.add(
-                                UploadRecord(
-                                    shortId = shortId,
-                                    ownerInstallationId = installationId,
-                                    fileName = fileName,
-                                    fileType = folder.replaceFirstChar { it.uppercase() },
-                                    type = type,
-                                    mimeType = mimeType,
-                                    storageBucket = storageBucket,
-                                    storagePath = storagePath,
-                                    supabaseUrl = supabaseUrl,
-                                    originalSupabaseUrl = supabaseUrl,
-                                    shortUrl = shortUrl,
-                                    publicUrl = shortUrl,
-                                    fileSize = fileSize,
-                                    uploadDate = uploadDate,
-                                    uploadTime = uploadTime,
-                                    createdAt = timestamp,
-                                    timestamp = timestamp,
-                                    isFreeTier = isFreeTier
-                                )
-                            )
-                        } catch (t: Throwable) {
-                            Log.w(TAG, "Parsing item notice: ${t.message}")
-                        }
-                    }
-                }
-
-                list.sortByDescending { it.createdAt }
-                trySend(list)
+                trySend(snapshot)
             }
 
             override fun onCancelled(error: DatabaseError) {
-                Log.w(TAG, "observeAllUserUploads cancelled: ${error.message}")
-                trySend(emptyList())
+                Log.w(TAG, "observeAllUserUploads cancelled: code=${error.code} ${error.message}")
+                trySend(null)
             }
         }
 
@@ -560,13 +547,125 @@ class FirebaseDatabaseManager {
             userNodeRef.addValueEventListener(listener)
         } catch (t: Throwable) {
             Log.w(TAG, "addValueEventListener error: ${t.message}")
-            trySend(emptyList())
+            trySend(null)
         }
 
         awaitClose {
             try {
                 userNodeRef.removeEventListener(listener)
             } catch (_: Throwable) {}
+        }
+    }
+
+    private fun parseUploads(snapshot: DataSnapshot, installationId: String): List<UploadRecord> {
+        val list = mutableListOf<UploadRecord>()
+        val categoryFolders = listOf("images", "videos", "documents", "files", "apks")
+        for (folder in categoryFolders) {
+            val folderSnapshot = snapshot.child(folder)
+            for (child in folderSnapshot.children) {
+                try {
+                    val shortId = child.key ?: ""
+                    val fileName = child.child("fileName").getValue(String::class.java) ?: shortId
+                    val uploadDate = child.child("uploadDate").getValue(String::class.java) ?: ""
+                    val uploadTime = child.child("uploadTime").getValue(String::class.java) ?: ""
+                    val type = child.child("fileType").getValue(String::class.java)
+                        ?: child.child("type").getValue(String::class.java) ?: folder
+                    val supabaseUrl = child.child("supabaseUrl").getValue(String::class.java) ?: ""
+                    val shortUrl = child.child("shortUrl").getValue(String::class.java) ?: "https://ivu.gt.tc/$shortId"
+                    val fileSize = child.child("fileSize").getValue(Long::class.java) ?: 0L
+                    val timestamp = child.child("timestamp").getValue(Long::class.java) ?: 0L
+                    val isFreeTier = child.child("isFreeTier").getValue(Boolean::class.java) ?: false
+                    val mimeType = child.child("mimeType").getValue(String::class.java)
+                        ?: LinkRules.mimeFromExtension(fileName)
+                    val storagePath = child.child("storagePath").getValue(String::class.java) ?: ""
+                    val storageBucket = child.child("storageBucket").getValue(String::class.java) ?: ""
+
+                    list.add(
+                        UploadRecord(
+                            shortId = shortId,
+                            ownerInstallationId = installationId,
+                            fileName = fileName,
+                            fileType = folder.replaceFirstChar { it.uppercase() },
+                            type = type,
+                            mimeType = mimeType,
+                            storageBucket = storageBucket,
+                            storagePath = storagePath,
+                            supabaseUrl = supabaseUrl,
+                            originalSupabaseUrl = supabaseUrl,
+                            shortUrl = shortUrl,
+                            publicUrl = shortUrl,
+                            fileSize = fileSize,
+                            uploadDate = uploadDate,
+                            uploadTime = uploadTime,
+                            createdAt = timestamp,
+                            timestamp = timestamp,
+                            isFreeTier = isFreeTier
+                        )
+                    )
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Parsing item notice: ${t.message}")
+                }
+            }
+        }
+        list.sortByDescending { it.createdAt }
+        return list
+    }
+
+    /**
+     * Self check for Settings: tells exactly which Firebase step works and which one is refused
+     * (usually the database security rules).
+     */
+    suspend fun runConnectionCheck(installationId: String): List<FirebaseCheckLine> {
+        val lines = mutableListOf<FirebaseCheckLine>()
+        val db = getDatabase()
+        if (db == null) {
+            lines += FirebaseCheckLine(false, "Firebase is not set up in this build.")
+            return lines
+        }
+        lines += FirebaseCheckLine(true, "Firebase project: ${db.app.options.projectId ?: "unknown"}")
+
+        lines += probe("Read short links (public_links)") {
+            db.getReference(NODE_PUBLIC_LINKS).child("__ivu_check__").get().await()
+        }
+        lines += probe("Save history (user)") {
+            db.getReference(NODE_USER).child(installationId).child("_check")
+                .setValue(ServerValue.TIMESTAMP).await()
+        }
+        val checkKey = "__chk_" + installationId.filter { it.isLetterOrDigit() }.take(8)
+        lines += probe("Create short link (public_links)") {
+            val ref = db.getReference(NODE_PUBLIC_LINKS).child(checkKey)
+            val existing = try {
+                ref.get().await()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                null
+            }
+            // create-only rules refuse a second write to the same key, so an earlier test node counts as OK
+            if (existing == null || !existing.exists()) {
+                ref.setValue(
+                    hashMapOf<String, Any>(
+                        "type" to "check",
+                        "active" to false,
+                        "createdAt" to ServerValue.TIMESTAMP
+                    )
+                ).await()
+            }
+        }
+        return lines
+    }
+
+    private suspend fun probe(label: String, block: suspend () -> Unit): FirebaseCheckLine {
+        return try {
+            withTimeout(10_000L) { block() }
+            FirebaseCheckLine(true, "$label: OK")
+        } catch (e: TimeoutCancellationException) {
+            FirebaseCheckLine(false, "$label: no answer (check your internet)")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            val reason = if (isPermissionDenied(t)) "BLOCKED by Firebase rules" else (t.message ?: "error")
+            FirebaseCheckLine(false, "$label: $reason")
         }
     }
 
