@@ -89,6 +89,9 @@ import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
 import com.praveen.studio.photovideo.url.ui.theme.AccentRose
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 
+/** The "Check Firebase Connection" tools are kept but hidden for now. */
+private const val SHOW_FIREBASE_CHECK = false
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -689,36 +692,39 @@ fun SettingsScreen(
                             Text("Clear Cache & Local History")
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        // Hidden for now (set SHOW_FIREBASE_CHECK to true to show it again, e.g. in advanced features)
+                        if (SHOW_FIREBASE_CHECK) {
+                            Spacer(modifier = Modifier.height(10.dp))
 
-                        // Firebase self check: shows which step is blocked (rules / internet)
-                        OutlinedButton(
-                            onClick = { viewModel.checkFirebase() },
-                            enabled = firebaseCheck !is FirebaseCheckState.Checking,
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(imageVector = Icons.Default.NetworkCheck, contentDescription = "Check Firebase", modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (firebaseCheck is FirebaseCheckState.Checking) "Checking Firebase..." else "Check Firebase Connection")
-                        }
-                        (firebaseCheck as? FirebaseCheckState.Done)?.let { done ->
-                            Spacer(modifier = Modifier.height(8.dp))
-                            done.lines.forEach { line ->
-                                Text(
-                                    text = (if (line.ok) "\u2713 " else "\u2717 ") + line.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (line.ok) AccentEmerald else AccentRose
-                                )
+                            // Firebase self check: shows which step is blocked (rules / internet)
+                            OutlinedButton(
+                                onClick = { viewModel.checkFirebase() },
+                                enabled = firebaseCheck !is FirebaseCheckState.Checking,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(imageVector = Icons.Default.NetworkCheck, contentDescription = "Check Firebase", modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (firebaseCheck is FirebaseCheckState.Checking) "Checking Firebase..." else "Check Firebase Connection")
                             }
-                            if (done.lines.any { !it.ok }) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "If a step says BLOCKED, publish the Firebase rules from README.md " +
-                                        "(Firebase Console > Realtime Database > Rules).",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            (firebaseCheck as? FirebaseCheckState.Done)?.let { done ->
+                                Spacer(modifier = Modifier.height(8.dp))
+                                done.lines.forEach { line ->
+                                    Text(
+                                        text = (if (line.ok) "\u2713 " else "\u2717 ") + line.text,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (line.ok) AccentEmerald else AccentRose
+                                    )
+                                }
+                                if (done.lines.any { !it.ok }) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "If a step says BLOCKED, publish the Firebase rules from README.md " +
+                                            "(Firebase Console > Realtime Database > Rules).",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
 

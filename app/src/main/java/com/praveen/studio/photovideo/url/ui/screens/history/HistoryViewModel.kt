@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
+import com.praveen.studio.photovideo.url.domain.repository.DeleteOutcome
 import com.praveen.studio.photovideo.url.domain.repository.HistoryRepository
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +14,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** Progress / result of deleting uploads. */
+sealed interface DeleteState {
+    data object Idle : DeleteState
+    data class Deleting(val done: Int, val total: Int) : DeleteState
+    data class Finished(val deleted: Int, val failed: Int, val messages: List<String>) : DeleteState
+}
 
 class HistoryViewModel(application: Application) : AndroidViewModel(application) {
     private val historyRepository = HistoryRepository(application)
@@ -58,6 +67,65 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    // ---- delete mode: pick single uploads or "Select all", confirm, delete from Supabase + Firebase ----
+
+    private val _selectionMode = MutableStateFlow(false)
+    val selectionMode: StateFlow<Boolean> = _selectionMode.asStateFlow()
+
+    private val _selectedIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
+
+    private val _deleteState = MutableStateFlow<DeleteState>(DeleteState.Idle)
+    val deleteState: StateFlow<DeleteState> = _deleteState.asStateFlow()
+
+    fun startSelection() {
+        _selectedIds.value = emptySet()
+        _selectionMode.value = true
+    }
+
+    fun cancelSelection() {
+        _selectionMode.value = false
+        _selectedIds.value = emptySet()
+    }
+
+    fun toggleSelected(shortId: String) {
+        _selectedIds.update { if (shortId in it) it - shortId else it + shortId }
+    }
+
+    /** Selects everything that is currently listed (respects the search / filter); a second tap clears it. */
+    fun toggleSelectAll() {
+        val visibleIds = filteredHistory.value.map { it.shortId }.toSet()
+        _selectedIds.update { current ->
+            if (visibleIds.isNotEmpty() && current.containsAll(visibleIds)) current - visibleIds else current + visibleIds
+        }
+    }
+
+    fun deleteSelected() {
+        if (_deleteState.value is DeleteState.Deleting) return
+        val ids = _selectedIds.value
+        val records = allHistory.value.filter { it.shortId in ids }
+        if (records.isEmpty()) {
+            cancelSelection()
+            return
+        }
+        viewModelScope.launch {
+            _deleteState.value = DeleteState.Deleting(0, records.size)
+            val outcome = try {
+                historyRepository.deleteRecords(records) { done, total ->
+                    _deleteState.value = DeleteState.Deleting(done, total)
+                }
+            } catch (t: Throwable) {
+                DeleteOutcome(0, records.size, listOf(t.message ?: "Delete failed"))
+            }
+            _deleteState.value = DeleteState.Finished(outcome.deleted, outcome.failed, outcome.messages)
+            cancelSelection()
+        }
+    }
+
+    fun dismissDeleteResult() {
+        _deleteState.value = DeleteState.Idle
+    }
 
     fun setFilter(filter: String) {
         _selectedFilter.value = filter

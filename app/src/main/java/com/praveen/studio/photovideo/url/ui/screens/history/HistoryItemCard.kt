@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,7 +74,10 @@ import com.praveen.studio.photovideo.url.ui.theme.IndigoSecondary
 @Composable
 fun HistoryItemCard(
     record: UploadRecord,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectionMode: Boolean = false,
+    selected: Boolean = false,
+    onSelectionToggle: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var isExpanded by remember { mutableStateOf(false) }
@@ -99,19 +103,28 @@ fun HistoryItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                width = if (selected) 2.dp else 1.dp,
+                color = if (selected) CyanPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(16.dp)
             )
             .testTag("history_item_${record.shortId}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
+        Box {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (selectionMode) {
+                    Checkbox(
+                        checked = selected,
+                        onCheckedChange = null,
+                        modifier = Modifier.padding(end = 10.dp)
+                    )
+                }
+
                 // Thumbnail or Type Icon
                 Box(
                     modifier = Modifier
@@ -378,6 +391,15 @@ fun HistoryItemCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Open", style = MaterialTheme.typography.labelSmall)
                 }
+            }
+        }
+            if (selectionMode) {
+                // While picking, a tap anywhere on the card selects it (buttons inside are not triggered)
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable(onClick = onSelectionToggle)
+                )
             }
         }
     }

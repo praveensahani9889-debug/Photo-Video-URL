@@ -339,7 +339,7 @@ private fun PickerContent(
             }
         }
 
-        Box(modifier = Modifier.weight(1f)) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when {
                 loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 visible.isEmpty() -> Column(

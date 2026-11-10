@@ -228,7 +228,7 @@ Publish the rules of **`firebase-rules.json`** (same folder as this README) unde
 ```json
 {
   "rules": {
-    "public_links": { "$id": { ".read": true, ".write": "!data.exists()" } },
+    "public_links": { "$id": { ".read": true, ".write": "!data.exists() || !newData.exists()" } },
     "photo_video_url": { "public_links": { "$id": { ".read": true } } },
     "user": { "$uid": { ".read": true, ".write": true } },
     "app": { ".read": true, ".write": false }
@@ -236,7 +236,7 @@ Publish the rules of **`firebase-rules.json`** (same folder as this README) unde
 }
 ```
 
-* `public_links` is **create-only**: the app can create a short link, nobody can overwrite an existing one.
+* `public_links`: a short link can be created once and never overwritten; it can only be removed (the History delete uses this).
 * `user/<installationId>` holds the upload history of one installation (the app has no login).
 * `app` is read-only; fill `app/backend` (free-trial Supabase) from the console.
 * **Do not** use rules that only open `photo_video_url/public_links`: the app then cannot save links or read history.
@@ -246,6 +246,18 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 **App Check enforcement OFF** for Realtime Database (the app does not use App Check).
 
 ---
+
+## 🗑️ Deleting uploads (History)
+History > delete icon > tick single files or tap **Select all** > red delete icon > **Continue**.
+The file is deleted from Supabase Storage and the history entry + short link are removed from Firebase.
+For the Supabase part run this once in **Supabase > SQL Editor** (change `media` to your bucket name):
+
+```sql
+create policy "ivu anon read" on storage.objects for select to anon using (bucket_id = 'media');
+create policy "ivu anon delete" on storage.objects for delete to anon using (bucket_id = 'media');
+```
+Without the delete policy the app shows "Supabase did not allow deleting the file" and keeps the entry.
+Free-trial photos live in the developer's storage and are only removed from the list.
 
 ## 🧯 If the app ever crashes
 A crash opens the **"Photo Video URL stopped unexpectedly"** screen with the exact error text.

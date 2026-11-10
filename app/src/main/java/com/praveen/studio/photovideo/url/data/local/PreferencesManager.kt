@@ -84,6 +84,21 @@ class PreferencesManager(private val context: Context) {
         }
     }
 
+    /** Removes deleted uploads from the local copy (and from the hidden list, they no longer exist anywhere). */
+    suspend fun removeRecords(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        try {
+            context.dataStore.edit { prefs ->
+                val remaining = deserializeList(prefs[KEY_LOCAL_UPLOADS] ?: "[]").filter { it.shortId !in ids }
+                prefs[KEY_LOCAL_UPLOADS] = serializeList(remaining)
+                val hidden = prefs[KEY_HIDDEN_IDS]
+                if (hidden != null) prefs[KEY_HIDDEN_IDS] = hidden - ids.toSet()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) { }
+    }
+
     /** "Clear history" button: empties the local cache and hides the given entries on this device. */
     suspend fun hideAndClear(ids: Collection<String>) {
         context.dataStore.edit { prefs ->

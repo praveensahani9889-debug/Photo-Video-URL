@@ -46,6 +46,8 @@ class FirebaseDatabaseManager {
         private const val REGISTER_TIMEOUT_MS = 20_000L
         private const val COUNTER_TIMEOUT_MS = 8_000L
         private const val LOOKUP_TIMEOUT_MS = 10_000L
+        private const val DELETE_TIMEOUT_MS = 12_000L
+        private val HISTORY_FOLDERS = listOf("images", "videos", "documents", "files", "apks")
 
         /** The app/ defaults only need to be checked once per app process, not on every screen. */
         @Volatile
@@ -66,6 +68,9 @@ class FirebaseDatabaseManager {
             }
             return false
         }
+
+        const val DELETE_RULES_HINT =
+            "Firebase rules do not allow deleting. Publish the rules from README.md (public_links must allow delete)."
 
         /** Short text for the user instead of a bare "Permission denied". */
         fun describeError(t: Throwable?): String = when {
@@ -508,6 +513,54 @@ class FirebaseDatabaseManager {
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to register upload in Firebase: ${t.message}")
             Result.failure(IllegalStateException(describeError(t), t))
+        }
+    }
+
+    /**
+     * Removes an upload from Firebase: the private history entry (user/<id>/<category>/<shortId>) and the public
+     * link (public_links/<shortId>) that the website reads.
+     * Success value: true when both were removed, false when only the history entry could be removed
+     * (the public link is refused by the database rules).
+     */
+    suspend fun deleteUpload(installationId: String, shortId: String, fileType: String): Result<Boolean> {
+        val userNode = userRef(installationId)
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        val publicLinks = publicLinksRef()
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        if (shortId.isBlank()) return Result.success(true)
+
+        // The category folder is known from the file type; if it is not, every folder is cleaned (a no-op where empty).
+        val normalizedType = fileType.lowercase().removeSuffix("s")
+        val folders = HISTORY_FOLDERS.filter { it.removeSuffix("s") == normalizedType }
+            .ifEmpty { HISTORY_FOLDERS }
+
+        return try {
+            withTimeout(DELETE_TIMEOUT_MS) {
+                for (folder in folders) {
+                    userNode.child(folder).child(shortId).removeValue().await()
+                }
+            }
+            val linkRemoved = try {
+                withTimeout(DELETE_TIMEOUT_MS) {
+                    publicLinks.child(shortId).removeValue().await()
+                }
+                true
+            } catch (e: TimeoutCancellationException) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                Log.w(TAG, "Public link delete notice: ${t.message}")
+                if (isPermissionDenied(t)) false else throw t
+            }
+            Result.success(linkRemoved)
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out while deleting. Check your internet connection."))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to delete upload in Firebase: ${t.message}")
+            Result.failure(IllegalStateException(if (isPermissionDenied(t)) DELETE_RULES_HINT else describeError(t), t))
         }
     }
 

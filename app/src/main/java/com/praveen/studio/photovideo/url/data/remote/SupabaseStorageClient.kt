@@ -15,6 +15,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 import java.io.InputStream
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
@@ -58,6 +59,9 @@ class SupabaseStorageClient(
 
         /** Error messages that start with this text mean "file is bigger than the Supabase limit". */
         const val TOO_LARGE_PREFIX = "File too large"
+        const val DELETE_POLICY_HINT =
+            "Supabase did not allow deleting the file. In Supabase open SQL Editor and run the " +
+                "delete policy from README.md, then try again."
         private const val TOO_LARGE_MESSAGE =
             "$TOO_LARGE_PREFIX for your Supabase storage limit (Free plan: 50 MB per file). " +
                 "Raise \"Global file size limit\" in Supabase > Storage > Settings (Pro plan), or upload a smaller file."
@@ -161,6 +165,70 @@ class SupabaseStorageClient(
         } catch (e: Exception) {
             Log.w(TAG, "Public access check notice: ${e.message}")
             PublicAccess.UNKNOWN
+        }
+    }
+
+
+    /**
+     * Deletes one file from Supabase Storage. Needs a "delete" policy for the anon role on storage.objects
+     * (see README). Returns success when the file is gone (also when it was already missing).
+     *
+     * [verifyUrl] is the public URL of the file: Supabase answers "not found" both for a missing file and for a
+     * missing delete policy, so a file that is still reachable after a "not found" is reported as a policy problem.
+     */
+    suspend fun deleteObject(
+        config: SupabaseConfig,
+        bucket: String,
+        path: String,
+        verifyUrl: String?
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!config.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Supabase URL or Anon Key is missing."))
+        }
+        try {
+            fun enc(part: String) = URLEncoder.encode(part, "UTF-8").replace("+", "%20")
+            val encodedPath = path.split('/').joinToString("/") { enc(it) }
+            val url = "${config.normalizedUrl}/storage/v1/object/${enc(bucket.trim())}/$encodedPath"
+            val key = config.anonKey.trim()
+            val request = Request.Builder()
+                .url(url)
+                .header("apikey", key)
+                .header("Authorization", "Bearer $key")
+                .delete()
+                .build()
+
+            val response = okHttpClient.newCall(request).await()
+            val code = response.code
+            val body = response.use { it.body?.string().orEmpty() }
+
+            when {
+                code in 200..299 -> Result.success(Unit)
+                code == 404 -> {
+                    val stillThere = !verifyUrl.isNullOrBlank() && isReachable(verifyUrl)
+                    if (stillThere) Result.failure(IllegalStateException(DELETE_POLICY_HINT))
+                    else Result.success(Unit)
+                }
+                code == 401 || code == 403 ||
+                    body.contains("row-level security", ignoreCase = true) ->
+                    Result.failure(IllegalStateException(DELETE_POLICY_HINT))
+                else -> Result.failure(IllegalStateException("Supabase delete error ($code): ${body.take(160)}"))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Delete request notice: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun isReachable(url: String): Boolean {
+        return try {
+            val request = Request.Builder().url(url).header("Range", "bytes=0-0").get().build()
+            okHttpClient.newCall(request).await().use { it.code in 200..299 }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
     }
 

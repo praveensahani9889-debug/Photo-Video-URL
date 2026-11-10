@@ -1,6 +1,10 @@
 package com.praveen.studio.photovideo.url.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,6 +20,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,12 +36,14 @@ import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
 import com.praveen.studio.photovideo.url.ui.components.MediaViewerScreen
+import com.praveen.studio.photovideo.url.ui.components.SplashScreen
 import com.praveen.studio.photovideo.url.ui.navigation.Screen
 import com.praveen.studio.photovideo.url.ui.screens.history.HistoryScreen
 import com.praveen.studio.photovideo.url.ui.screens.home.HomeScreen
 import com.praveen.studio.photovideo.url.ui.screens.settings.SettingsScreen
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 import com.praveen.studio.photovideo.url.ui.theme.PhotoVideoUrlTheme
+import kotlinx.coroutines.delay
 
 @Composable
 fun PhotoVideoApp() {
@@ -45,6 +52,15 @@ fun PhotoVideoApp() {
     val themePreference by preferencesManager.themeFlow.collectAsState(initial = ThemePreference.SYSTEM)
 
     var currentScreen by rememberSaveable { mutableStateOf(Screen.HOME) }
+
+    // Flash screen: shown once when the app opens (the app is already loading behind it)
+    var showSplash by rememberSaveable { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        if (showSplash) {
+            delay(1400)
+            showSplash = false
+        }
+    }
 
     // A tapped https://ivu.gt.tc/<id> link: shown here (not inside the Home screen) so it opens on top of
     // whichever tab is currently visible.
@@ -126,6 +142,14 @@ fun PhotoVideoApp() {
                 shortId = shortId,
                 onClose = { IncomingIntentManager.clearDeepLink() }
             )
+        }
+
+        AnimatedVisibility(
+            visible = showSplash,
+            enter = EnterTransition.None,
+            exit = fadeOut(animationSpec = tween(durationMillis = 450))
+        ) {
+            SplashScreen()
         }
         }
     }
