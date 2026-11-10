@@ -40,3 +40,7 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# Classes created through reflection by AndroidX (ViewModels and WorkManager workers)
+-keep class * extends androidx.lifecycle.ViewModel { <init>(...); }
+-keep class * extends androidx.work.ListenableWorker { <init>(...); }

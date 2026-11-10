@@ -90,6 +90,13 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- Crash report screen (own process, plain views) -->
+        <activity
+            android:name=".CrashReportActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:process=":crash"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
     </application>
 
 </manifest>

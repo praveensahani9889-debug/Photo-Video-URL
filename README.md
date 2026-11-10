@@ -247,6 +247,17 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
+## 🧯 If the app ever crashes
+A crash opens the **"Photo Video URL stopped unexpectedly"** screen with the exact error text.
+Tap **Copy report** and send it to the developer. (This screen runs in its own process, so it also works
+when the normal app cannot start.)
+
+## 📦 APK files (GitHub Releases)
+* `PhotoVideoURL-v1.0.apk` – normal build, the safest one.
+* `PhotoVideoURL-v1.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+
+---
+
 ## 🛠️ Building & Running
 
 ### Local Android Studio Build

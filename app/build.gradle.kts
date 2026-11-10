@@ -43,9 +43,7 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      // R8 removes unused code and resources: much smaller APK (see proguard-rules.pro)
-      isMinifyEnabled = true
-      isShrinkResources = true
+      isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
@@ -56,9 +54,12 @@ android {
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
     }
-    // Small, optimised APK that the GitHub workflow can build without the private upload key.
+    // Small APK for the GitHub workflow (R8 removes unused code and resources, see proguard-rules.pro).
+    // Built without the private upload key. The normal debug APK stays the main, safest download.
     create("optimized") {
       initWith(getByName("release"))
+      isMinifyEnabled = true
+      isShrinkResources = true
       isDebuggable = false
       signingConfig = signingConfigs.getByName("debugConfig")
       matchingFallbacks += listOf("release")

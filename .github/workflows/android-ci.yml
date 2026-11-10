@@ -70,31 +70,28 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
 
-      # Build the small optimised APK (R8 shrinking, unused code removed).
-      # If this step ever fails, the debug APK above is published instead.
-      - name: Build Optimized APK
-        id: optimized
+      # Build the small optimised APK (R8 shrinking). It is an extra download: if this step
+      # fails, the normal APK above is still published.
+      - name: Build Small APK
+        id: small
         continue-on-error: true
         run: gradle assembleOptimized --stacktrace
 
-      # Prepare user-friendly named APK for direct download
-      - name: Prepare Direct APK File
+      # Prepare user-friendly named APK files for direct download
+      - name: Prepare Direct APK Files
         run: |
-          if [ "${{ steps.optimized.outcome }}" = "success" ] && [ -f app/build/outputs/apk/optimized/app-optimized.apk ]; then
-            cp app/build/outputs/apk/optimized/app-optimized.apk PhotoVideoURL-v1.0.apk
-            echo "Using the optimized (small) APK"
-          else
-            cp app/build/outputs/apk/debug/app-debug.apk PhotoVideoURL-v1.0.apk
-            echo "Optimized build not available -> using the debug APK"
+          cp app/build/outputs/apk/debug/app-debug.apk PhotoVideoURL-v1.0.apk
+          if [ "${{ steps.small.outcome }}" = "success" ] && [ -f app/build/outputs/apk/optimized/app-optimized.apk ]; then
+            cp app/build/outputs/apk/optimized/app-optimized.apk PhotoVideoURL-v1.0-small.apk
           fi
-          ls -lh PhotoVideoURL-v1.0.apk
+          ls -lh PhotoVideoURL-v1.0*.apk
 
       # Upload Debug APK as Action Artifact (backup)
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: photo-video-url-debug-apk
-          path: PhotoVideoURL-v1.0.apk
+          path: PhotoVideoURL-v1.0*.apk
           if-no-files-found: error
 
       # Publish directly to GitHub Releases so users get a direct .apk download (No ZIP!)
@@ -109,10 +106,12 @@ jobs:
             
             **Direct APK Download** — Click the link below under **Assets** to download and install directly on your Android phone without needing to unzip:
             
-            - **File:** `PhotoVideoURL-v1.0.apk`
+            - **File:** `PhotoVideoURL-v1.0.apk` (normal, safest) and `PhotoVideoURL-v1.0-small.apk` (smaller, optimised)
             - **Package Name:** `com.praveen.studio.photovideo.url`
             - **Features:** Supabase Storage, ivu.gt.tc Short URLs, Direct Share Target, Deep Linking, 50MB+ ZIP & Upload, APK Extractor.
-          files: PhotoVideoURL-v1.0.apk
+          files: |
+            PhotoVideoURL-v1.0.apk
+            PhotoVideoURL-v1.0-small.apk
           draft: false
           prerelease: false
           make_latest: true

@@ -1,6 +1,9 @@
 package com.praveen.studio.photovideo.url
 
 import android.app.Application
+import android.content.Intent
+import android.os.Build
+import android.os.Process
 import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -9,6 +12,7 @@ import coil.memory.MemoryCache
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.praveen.studio.photovideo.url.domain.util.CacheCleaner
+import kotlin.system.exitProcess
 
 class PhotoVideoApplication : Application(), ImageLoaderFactory {
 
@@ -30,11 +34,20 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
 
-        // Guard against background thread crashes from network or service libraries
+        // The crash report screen runs in its own process and must stay free of any app start-up work,
+        // otherwise a problem in the start-up code would crash the report screen too.
+        if (Application.getProcessName().orEmpty().endsWith(":crash")) return
+
+        // Guard against background thread crashes from network or service libraries.
+        // A crash on the main thread opens the crash report screen with the exact error text.
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e(TAG, "Uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
             if (thread.name == "main") {
+                if (showCrashScreen(throwable)) {
+                    Process.killProcess(Process.myPid())
+                    exitProcess(10)
+                }
                 defaultHandler?.uncaughtException(thread, throwable)
             }
         }
@@ -42,7 +55,37 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
         initFirebase()
 
         // Leftover ZIPs / extracted APKs / PDF previews from earlier sessions are not needed any more.
-        Thread { CacheCleaner.cleanTempFiles(applicationContext) }.start()
+        try {
+            Thread {
+                try {
+                    CacheCleaner.cleanTempFiles(applicationContext)
+                } catch (_: Throwable) {
+                }
+            }.start()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Opens [CrashReportActivity] (separate process) with the stack trace. Returns true when it was started. */
+    private fun showCrashScreen(throwable: Throwable): Boolean {
+        return try {
+            val report = buildString {
+                append("App: Photo Video URL ").append(BuildConfig.VERSION_NAME).append('\n')
+                append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n")
+                append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append("\n\n")
+                append(Log.getStackTraceString(throwable))
+            }.take(14000)
+            val intent = Intent(this, CrashReportActivity::class.java).apply {
+                putExtra(CrashReportActivity.EXTRA_REPORT, report)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+            startActivity(intent)
+            // give the system a moment to take over the start request before this process ends
+            Thread.sleep(300)
+            true
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     /**
@@ -78,21 +121,26 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
 
     /** One shared image loader with small caches (the default one may fill 250 MB of disk). */
     override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
-            .memoryCache {
-                MemoryCache.Builder(this)
-                    .maxSizePercent(0.15)
-                    .build()
-            }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(IMAGE_DISK_CACHE_BYTES)
-                    .build()
-            }
-            .respectCacheHeaders(false)
-            .allowRgb565(true)
-            .crossfade(false)
-            .build()
+        return try {
+            ImageLoader.Builder(this)
+                .memoryCache {
+                    MemoryCache.Builder(this)
+                        .maxSizePercent(0.15)
+                        .build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(IMAGE_DISK_CACHE_BYTES)
+                        .build()
+                }
+                .respectCacheHeaders(false)
+                .allowRgb565(true)
+                .crossfade(false)
+                .build()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Image loader fallback: ${t.message}")
+            ImageLoader.Builder(this).build()
+        }
     }
 }

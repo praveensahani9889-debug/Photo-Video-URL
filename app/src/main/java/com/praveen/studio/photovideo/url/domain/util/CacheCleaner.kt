@@ -1,6 +1,7 @@
 package com.praveen.studio.photovideo.url.domain.util
 
 import android.content.Context
+import coil.annotation.ExperimentalCoilApi
 import coil.imageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,6 +31,7 @@ object CacheCleaner {
     }
 
     /** Clears every cached file (image previews included). Returns the freed bytes. */
+    @OptIn(ExperimentalCoilApi::class)
     suspend fun clearAll(context: Context): Long = withContext(Dispatchers.IO) {
         val before = sizeBytes(context)
         try {
@@ -56,10 +58,10 @@ object CacheCleaner {
     private fun dirSize(dir: File?): Long {
         if (dir == null || !dir.exists()) return 0L
         var total = 0L
-        val stack = ArrayDeque<File>()
+        val stack = ArrayList<File>()
         stack.add(dir)
         while (stack.isNotEmpty()) {
-            val current = stack.removeLast()
+            val current = stack.removeAt(stack.size - 1)
             val children = current.listFiles() ?: continue
             for (child in children) {
                 if (child.isDirectory) stack.add(child) else total += child.length()
