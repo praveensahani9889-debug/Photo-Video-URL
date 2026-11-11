@@ -90,6 +90,12 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- Search & Download screen (opened from the bottom bar) -->
+        <activity
+            android:name=".LinkSearchActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Crash report screen (own process, plain views) -->
         <activity
             android:name=".CrashReportActivity"

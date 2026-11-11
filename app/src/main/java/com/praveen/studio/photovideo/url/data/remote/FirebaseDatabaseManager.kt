@@ -157,10 +157,10 @@ class FirebaseDatabaseManager {
                 root.child("about").setValue(
                     mapOf(
                         "appName" to "Photo Video URL",
-                        "contact" to "praveensahani9273@gmail.com",
-                        "supportEmail" to "praveensahani9273@gmail.com",
+                        "contact" to "https://ivu.gt.tc/contact",
+                        "supportUrl" to "https://ivu.gt.tc/contact",
                         "domain" to "https://ivu.gt.tc",
-                        "version" to "2.1.0"
+                        "version" to "2.2.0"
                     )
                 ).await()
             }

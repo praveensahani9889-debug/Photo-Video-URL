@@ -19,6 +19,11 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import android.content.Intent
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Search
+import com.praveen.studio.photovideo.url.LinkSearchActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -98,6 +103,17 @@ fun PhotoVideoApp() {
                     tonalElevation = 4.dp
                 ) {
                     Screen.entries.forEach { screen ->
+                        // "Search" opens its own screen (Activity); it never stays selected in this bar
+                        if (screen == Screen.SETTINGS) {
+                            SearchNavItem(
+                                onClick = {
+                                    try {
+                                        context.startActivity(Intent(context, LinkSearchActivity::class.java))
+                                    } catch (_: Throwable) {
+                                    }
+                                }
+                            )
+                        }
                         val isSelected = currentScreen == screen
                         NavigationBarItem(
                             selected = isSelected,
@@ -169,4 +185,29 @@ fun PhotoVideoApp() {
         }
         }
     }
+}
+
+@Composable
+private fun RowScope.SearchNavItem(onClick: () -> Unit) {
+    NavigationBarItem(
+        selected = false,
+        onClick = onClick,
+        icon = {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = "Search"
+            )
+        },
+        label = {
+            Text(
+                text = "Search",
+                style = MaterialTheme.typography.labelSmall
+            )
+        },
+        colors = NavigationBarItemDefaults.colors(
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        modifier = Modifier.testTag("nav_item_search")
+    )
 }

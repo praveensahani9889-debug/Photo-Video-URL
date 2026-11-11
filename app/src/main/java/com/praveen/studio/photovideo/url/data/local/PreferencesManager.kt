@@ -41,6 +41,45 @@ class PreferencesManager(private val context: Context) {
         prefs[KEY_HIDDEN_IDS] ?: emptySet()
     }
 
+    /** Links the user searched for in "Search & Download". Kept on this phone only (never sent to Firebase). */
+    val recentSearchesFlow: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        parseStringList(prefs[KEY_RECENT_SEARCHES])
+    }
+
+    suspend fun addRecentSearch(query: String) {
+        val q = query.trim()
+        if (q.isEmpty() || q.length > 500) return
+        try {
+            context.dataStore.edit { prefs ->
+                val list = parseStringList(prefs[KEY_RECENT_SEARCHES]).toMutableList()
+                list.removeAll { it.equals(q, ignoreCase = true) }
+                list.add(0, q)
+                prefs[KEY_RECENT_SEARCHES] = stringListToJson(list.take(MAX_RECENT_SEARCHES))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) { }
+    }
+
+    suspend fun removeRecentSearch(query: String) {
+        try {
+            context.dataStore.edit { prefs ->
+                val list = parseStringList(prefs[KEY_RECENT_SEARCHES]).filterNot { it == query }
+                prefs[KEY_RECENT_SEARCHES] = stringListToJson(list)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) { }
+    }
+
+    suspend fun clearRecentSearches() {
+        try {
+            context.dataStore.edit { prefs -> prefs.remove(KEY_RECENT_SEARCHES) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) { }
+    }
+
     suspend fun setTheme(theme: ThemePreference) {
         context.dataStore.edit { prefs ->
             prefs[KEY_THEME] = theme.name
@@ -112,7 +151,25 @@ class PreferencesManager(private val context: Context) {
         private val KEY_FIRST_LAUNCH = booleanPreferencesKey("is_first_launch")
         private val KEY_LOCAL_UPLOADS = stringPreferencesKey("local_cached_uploads")
         private val KEY_HIDDEN_IDS = stringSetPreferencesKey("hidden_history_ids")
+        private val KEY_RECENT_SEARCHES = stringPreferencesKey("recent_searches")
+        private const val MAX_RECENT_SEARCHES = 20
         private const val MAX_LOCAL_RECORDS = 500
+
+        private fun parseStringList(json: String?): List<String> {
+            if (json.isNullOrBlank()) return emptyList()
+            return try {
+                val array = JSONArray(json)
+                (0 until array.length()).mapNotNull { array.optString(it).takeIf { v -> v.isNotBlank() } }
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        }
+
+        private fun stringListToJson(list: List<String>): String {
+            val array = JSONArray()
+            list.forEach { array.put(it) }
+            return array.toString()
+        }
 
         private fun recordToJson(record: UploadRecord): JSONObject {
             return JSONObject().apply {

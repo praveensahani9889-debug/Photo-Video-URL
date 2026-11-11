@@ -89,6 +89,9 @@ import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
 import com.praveen.studio.photovideo.url.ui.theme.AccentRose
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 
+/** Contact page of the website (support). */
+private const val SUPPORT_URL = "https://ivu.gt.tc/contact"
+
 /** The "Check Firebase Connection" tools are kept but hidden for now. */
 private const val SHOW_FIREBASE_CHECK = false
 
@@ -730,26 +733,23 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Support Email
+                        // Support: opens the contact page of the website
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-                                        data = Uri.parse("mailto:praveensahani9273@gmail.com")
-                                        putExtra(Intent.EXTRA_SUBJECT, "Photo Video URL Support")
-                                    }
+                                    val contactIntent = Intent(Intent.ACTION_VIEW, Uri.parse(SUPPORT_URL))
                                     try {
-                                        context.startActivity(emailIntent)
+                                        context.startActivity(contactIntent)
                                     } catch (_: Exception) {}
                                 }
                                 .padding(vertical = 4.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Mail, contentDescription = "Support Email", tint = CyanPrimary, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = Icons.Default.Mail, contentDescription = "Contact support", tint = CyanPrimary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Support: praveensahani9273@gmail.com",
+                                text = "Support: ivu.gt.tc/contact",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

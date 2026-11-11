@@ -251,6 +251,16 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
+## 🔎 Search & Download (version 2.2.0)
+Bottom bar > **Search** opens its own screen: paste a link, it is shown, and **Download** saves it to
+`Downloads/PhotoVideoURL`. Recent searches are kept **on the phone only** (not in Firebase).
+* Photo Video URL links (`https://ivu.gt.tc/image_xxxx` or just the id): image, video, document, file, APK.
+* Any direct link to a photo, video, audio, PDF or file, and web pages that publish their photo / video in the
+  standard page tags (`og:image`, `og:video`, `<video src>`).
+* Links of YouTube, Instagram, Facebook, X/Twitter, Snapchat, TikTok and similar services are **not** downloaded
+  (against their rules); the app says so and offers "Open in browser".
+* Support in Settings opens `https://ivu.gt.tc/contact`.
+
 ## 📱 One profile per phone (version 2.1.0)
 * The first installation ID of a phone is saved in Firebase (`device_profiles`, key = salted hash of the Android ID).
   After an **uninstall, re-install or "clear data"** the same ID is found again: the **History comes back**, the
@@ -283,8 +293,8 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v2.1.0.apk` – normal build, the safest one.
-* `PhotoVideoURL-v2.1.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+* `PhotoVideoURL-v2.2.0.apk` – normal build, the safest one.
+* `PhotoVideoURL-v2.2.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
 
 ---
 
