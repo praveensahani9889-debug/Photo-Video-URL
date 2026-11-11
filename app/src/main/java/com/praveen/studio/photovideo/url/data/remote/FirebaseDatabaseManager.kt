@@ -39,6 +39,9 @@ class FirebaseDatabaseManager {
         private const val NODE_LEGACY_USER_DETAILS = "userDetails"
         private const val NODE_APP = "app"
         private const val NODE_PUBLIC_LINKS = "public_links"
+        private const val NODE_DEVICE_PROFILES = "device_profiles"
+        private const val NODE_IP_PROFILES = "ip_profiles"
+        private const val NODE_CONFIG_BACKUP = "cfg"
 
         private const val SHORT_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         private const val SHORT_ID_LENGTH = 7
@@ -157,7 +160,7 @@ class FirebaseDatabaseManager {
                         "contact" to "praveensahani9273@gmail.com",
                         "supportEmail" to "praveensahani9273@gmail.com",
                         "domain" to "https://ivu.gt.tc",
-                        "version" to "1.0.0"
+                        "version" to "2.1.0"
                     )
                 ).await()
             }
@@ -513,6 +516,131 @@ class FirebaseDatabaseManager {
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to register upload in Firebase: ${t.message}")
             Result.failure(IllegalStateException(describeError(t), t))
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Phone identity: one profile per phone, kept after uninstall / "clear data"
+    // ---------------------------------------------------------------------------------------------
+
+    /** The installationId registered for this phone (device key = hash of the Android ID), or null when none yet. */
+    suspend fun fetchDeviceProfile(deviceKey: String): Result<String?> {
+        val db = getDatabase() ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        return try {
+            val snapshot = withTimeout(LOOKUP_TIMEOUT_MS) {
+                db.getReference(NODE_DEVICE_PROFILES).child(deviceKey).child("installationId").get().await()
+            }
+            Result.success(snapshot.getValue(String::class.java)?.takeIf { it.isNotBlank() })
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out while checking this phone"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
+    /**
+     * Saves the FIRST installationId of this phone. The rules make this node create-only, so the first ID stays
+     * forever. Returns the ID that is registered now (the existing one when the phone was registered meanwhile).
+     */
+    suspend fun registerDeviceProfile(deviceKey: String, installationId: String): Result<String> {
+        val db = getDatabase() ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        return try {
+            withTimeout(LOOKUP_TIMEOUT_MS) {
+                db.getReference(NODE_DEVICE_PROFILES).child(deviceKey).setValue(
+                    hashMapOf<String, Any>(
+                        "installationId" to installationId,
+                        "createdAt" to ServerValue.TIMESTAMP
+                    )
+                ).await()
+            }
+            Result.success(installationId)
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out while registering this phone"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            // refused because it exists already: use the registered one
+            val existing = fetchDeviceProfile(deviceKey).getOrNull()
+            if (existing != null) Result.success(existing) else Result.failure(t)
+        }
+    }
+
+    /** Free trial photos used from this network (hashed IP). Null when unknown (offline, rules). */
+    suspend fun fetchIpFreeUsed(ipKey: String): Long? {
+        val db = getDatabase() ?: return null
+        return try {
+            val snapshot = withTimeout(LOOKUP_TIMEOUT_MS) {
+                db.getReference(NODE_IP_PROFILES).child(ipKey).child("freeUsed").get().await()
+            }
+            getNumberAsLong(snapshot)
+        } catch (e: CancellationException) {
+            if (e !is TimeoutCancellationException) throw e
+            null
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    suspend fun incrementIpFreeUsed(ipKey: String) {
+        val db = getDatabase() ?: return
+        try {
+            withTimeout(COUNTER_TIMEOUT_MS) {
+                db.getReference(NODE_IP_PROFILES).child(ipKey).child("freeUsed")
+                    .setValue(ServerValue.increment(1)).await()
+            }
+        } catch (e: CancellationException) {
+            if (e !is TimeoutCancellationException) throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "IP counter notice: ${t.message}")
+        }
+    }
+
+    // ---- encrypted backup of the user's Supabase settings: user/<id>/cfg ----
+
+    suspend fun fetchConfigBackup(installationId: String): Result<String?> {
+        val ref = userRef(installationId)?.child(NODE_CONFIG_BACKUP)
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        return try {
+            val snapshot = withTimeout(LOOKUP_TIMEOUT_MS) { ref.get().await() }
+            Result.success(snapshot.getValue(String::class.java)?.takeIf { it.isNotBlank() })
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
+    suspend fun saveConfigBackup(installationId: String, blob: String): Result<Unit> {
+        val ref = userRef(installationId)?.child(NODE_CONFIG_BACKUP)
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        return try {
+            withTimeout(LOOKUP_TIMEOUT_MS) { ref.setValue(blob).await() }
+            Result.success(Unit)
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+
+    suspend fun deleteConfigBackup(installationId: String): Result<Unit> {
+        val ref = userRef(installationId)?.child(NODE_CONFIG_BACKUP)
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        return try {
+            withTimeout(LOOKUP_TIMEOUT_MS) { ref.removeValue().await() }
+            Result.success(Unit)
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out"))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 

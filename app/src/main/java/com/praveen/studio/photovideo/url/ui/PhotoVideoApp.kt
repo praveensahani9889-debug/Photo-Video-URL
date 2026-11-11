@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
+import com.praveen.studio.photovideo.url.data.remote.IdentityManager
 import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
 import com.praveen.studio.photovideo.url.ui.components.MediaViewerScreen
 import com.praveen.studio.photovideo.url.ui.components.SplashScreen
@@ -55,9 +56,22 @@ fun PhotoVideoApp() {
 
     // Flash screen: shown once when the app opens (the app is already loading behind it)
     var showSplash by rememberSaveable { mutableStateOf(true) }
+
+    // The phone's permanent profile ID (same after re-install / clear data) must be known before any screen
+    // reads its history or counters, so the screens start once it is resolved (a moment, or a few seconds offline).
+    var identityReady by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
+        val startedAt = System.currentTimeMillis()
+        try {
+            IdentityManager.prepare(context)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+        }
+        identityReady = true
         if (showSplash) {
-            delay(1400)
+            val elapsed = System.currentTimeMillis() - startedAt
+            delay((1400L - elapsed).coerceAtLeast(0L))
             showSplash = false
         }
     }
@@ -73,6 +87,7 @@ fun PhotoVideoApp() {
 
     PhotoVideoUrlTheme(themePreference = themePreference) {
         Box(modifier = Modifier.fillMaxSize()) {
+        if (identityReady) {
         Scaffold(
             bottomBar = {
                 NavigationBar(
@@ -135,6 +150,7 @@ fun PhotoVideoApp() {
                     }
                 }
             }
+        }
         }
 
         deepLinkShortId?.let { shortId ->

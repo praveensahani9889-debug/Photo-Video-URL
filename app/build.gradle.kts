@@ -16,8 +16,8 @@ android {
     applicationId = "com.praveen.studio.photovideo.url"
     minSdk = 28
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 210
+    versionName = "2.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

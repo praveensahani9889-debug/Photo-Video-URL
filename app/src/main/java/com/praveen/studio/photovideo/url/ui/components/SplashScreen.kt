@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +29,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.praveen.studio.photovideo.url.BuildConfig
 import com.praveen.studio.photovideo.url.R
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 import kotlinx.coroutines.launch
@@ -87,5 +89,13 @@ fun SplashScreen(modifier: Modifier = Modifier) {
                 color = CyanPrimary
             )
         }
+        Text(
+            text = "Version ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        )
     }
 }

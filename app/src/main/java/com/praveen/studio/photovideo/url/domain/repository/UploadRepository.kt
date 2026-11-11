@@ -12,6 +12,7 @@ import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
+import com.praveen.studio.photovideo.url.data.remote.IdentityManager
 import com.praveen.studio.photovideo.url.data.remote.PublicAccess
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
 import kotlinx.coroutines.CoroutineScope
@@ -105,6 +106,13 @@ class UploadRepository(
             }
             if (!details.hasFreeUploadsLeft) {
                 send(UploadStatus.Failed(item.name, "Your 3 free photos are used. Set up your own Supabase to keep uploading.", retryable = false))
+                return@channelFlow
+            }
+            // Free photos are also limited per network, so a phone cannot get new demo photos by resetting itself
+            val ipKey = IdentityManager.getIpKey()
+            val ipUsed = if (ipKey != null) firebaseDbManager.fetchIpFreeUsed(ipKey) else null
+            if (ipUsed != null && ipUsed >= IdentityManager.IP_FREE_MAX) {
+                send(UploadStatus.Failed(item.name, "The free trial of this network is used up. Set up your own Supabase to keep uploading.", retryable = false))
                 return@channelFlow
             }
             val trialConfig = getTrialSupabaseConfig()
@@ -268,6 +276,16 @@ class UploadRepository(
                 )
             )
             return@channelFlow
+        }
+
+        // Count the free photo for this network too (best effort)
+        if (item.isTrial) {
+            try {
+                IdentityManager.getIpKey()?.let { firebaseDbManager.incrementIpFreeUsed(it) }
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+            }
         }
 
         // 5. Save to local cache for instant offline & restart availability

@@ -19,6 +19,18 @@
         ".write": true
       }
     },
+    "device_profiles": {
+      "$key": {
+        ".read": true,
+        ".write": "!data.exists()"
+      }
+    },
+    "ip_profiles": {
+      "$key": {
+        ".read": true,
+        ".write": true
+      }
+    },
     "app": {
       ".read": true,
       ".write": false

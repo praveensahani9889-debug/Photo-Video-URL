@@ -292,7 +292,8 @@ fun HistoryItemCard(
                         .fillMaxWidth()
                         .padding(top = 10.dp)
                 ) {
-                    if (record.originalSupabaseUrl.isNotBlank() && !record.isDemo) {
+                    // Demo (free trial) photos live in the developer's storage: their real URL and path stay hidden
+                    if (record.originalSupabaseUrl.isNotBlank() && !record.isDemo && !record.isFreeTier) {
                         Text(
                             text = "ORIGINAL SUPABASE URL:",
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
@@ -313,11 +314,19 @@ fun HistoryItemCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text(
-                            text = "Storage Path: ${record.storagePath}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        if (!record.isFreeTier) {
+                            Text(
+                                text = "Storage Path: ${record.storagePath}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                text = "Free demo photo",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         if (record.uploadDuration > 0) {
                             Text(
                                 text = "Duration: ${record.uploadDuration / 1000}s",

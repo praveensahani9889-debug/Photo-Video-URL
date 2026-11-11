@@ -210,7 +210,7 @@ app/
         ├── contact: "praveensahani9273@gmail.com"
         ├── supportEmail: "praveensahani9273@gmail.com"
         ├── domain: "https://ivu.gt.tc"
-        └── version: "1.0.0"
+        └── version: "2.1.0"
 
 public_links/
   └── {shortId}/
@@ -231,13 +231,17 @@ Publish the rules of **`firebase-rules.json`** (same folder as this README) unde
     "public_links": { "$id": { ".read": true, ".write": "!data.exists() || !newData.exists()" } },
     "photo_video_url": { "public_links": { "$id": { ".read": true } } },
     "user": { "$uid": { ".read": true, ".write": true } },
+    "device_profiles": { "$key": { ".read": true, ".write": "!data.exists()" } },
+    "ip_profiles": { "$key": { ".read": true, ".write": true } },
     "app": { ".read": true, ".write": false }
   }
 }
 ```
 
 * `public_links`: a short link can be created once and never overwritten; it can only be removed (the History delete uses this).
-* `user/<installationId>` holds the upload history of one installation (the app has no login).
+* `user/<installationId>` holds the upload history of one phone (the app has no login).
+* `device_profiles/<hash>` is **create-only**: the first ID of a phone is saved once and never changes (see *One profile per phone*).
+* `ip_profiles/<hash>/freeUsed` counts free demo photos per network.
 * `app` is read-only; fill `app/backend` (free-trial Supabase) from the console.
 * **Do not** use rules that only open `photo_video_url/public_links`: the app then cannot save links or read history.
 
@@ -246,6 +250,20 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 **App Check enforcement OFF** for Realtime Database (the app does not use App Check).
 
 ---
+
+## 📱 One profile per phone (version 2.1.0)
+* The first installation ID of a phone is saved in Firebase (`device_profiles`, key = salted hash of the Android ID).
+  After an **uninstall, re-install or "clear data"** the same ID is found again: the **History comes back**, the
+  **3 free demo photos are not given again**, and no new profile is created in the database.
+* The user's **Supabase settings are backed up in Firebase, encrypted** with a key that only the phone has, and are
+  restored automatically after a re-install (no new set-up). **Disconnect** in Settings removes the backup.
+* The public **IP is not used to choose a profile** (people on the same Wi-Fi or mobile network would see each
+  other's History). It only limits the free demo photos per network (`IP_FREE_MAX` in `IdentityManager.kt`, now 30).
+  Only salted hashes are stored, never the IP or the Android ID.
+* The Android ID stays the same for the same APK signing key until the phone is factory reset. A build signed with
+  another key counts as a new phone.
+* **Demo photos** (free trial) are stored in the developer's Supabase. In History their real URL and storage path are
+  hidden; only the short link is shown.
 
 ## 🗑️ Deleting uploads (History)
 History > delete icon > tick single files or tap **Select all** > red delete icon > **Continue**.
@@ -265,8 +283,8 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v1.0.apk` – normal build, the safest one.
-* `PhotoVideoURL-v1.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+* `PhotoVideoURL-v2.1.0.apk` – normal build, the safest one.
+* `PhotoVideoURL-v2.1.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
 
 ---
 
