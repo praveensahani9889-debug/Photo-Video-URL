@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.praveen.studio.photovideo.url.R
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
+import com.praveen.studio.photovideo.url.ui.components.QrCodeDialog
 import com.praveen.studio.photovideo.url.ui.theme.AccentAmber
 import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
@@ -400,6 +402,25 @@ fun HistoryItemCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Open", style = MaterialTheme.typography.labelSmall)
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // QR code of the link (bubble style with the app logo)
+            var showQr by remember { mutableStateOf(false) }
+            OutlinedButton(
+                onClick = { showQr = true },
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("history_qr_${record.shortId}")
+            ) {
+                Icon(imageVector = Icons.Default.QrCode2, contentDescription = "QR code", modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("QR code", style = MaterialTheme.typography.labelSmall)
+            }
+            if (showQr) {
+                QrCodeDialog(link = record.publicUrl, onDismiss = { showQr = false })
             }
         }
             if (selectionMode) {

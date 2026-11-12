@@ -160,7 +160,7 @@ class FirebaseDatabaseManager {
                         "contact" to "https://ivu.gt.tc/contact",
                         "supportUrl" to "https://ivu.gt.tc/contact",
                         "domain" to "https://ivu.gt.tc",
-                        "version" to "2.2.0"
+                        "version" to "2.3.0"
                     )
                 ).await()
             }

@@ -251,6 +251,12 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
+## 🔳 QR code (version 2.3.0)
+Wherever a link is shown (upload result, History card, in-app link viewer) there is a **QR code** button. It opens a
+bubble style QR (round gradient dots, soft corners, the app logo in the middle) and **Download QR** saves it as a
+picture in `Pictures/PhotoVideoURL` (the link is written under the code). The code uses the highest error correction
+so it still scans with the logo in the middle (tested with a QR decoder at different sizes, blur and compression).
+
 ## 🔎 Search & Download (version 2.2.0)
 Bottom bar > **Search** opens its own screen: paste a link, it is shown, and **Download** saves it to
 `Downloads/PhotoVideoURL`. Recent searches are kept **on the phone only** (not in Firebase).
@@ -293,8 +299,8 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v2.2.0.apk` – normal build, the safest one.
-* `PhotoVideoURL-v2.2.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+* `PhotoVideoURL-v2.3.0.apk` – normal build, the safest one.
+* `PhotoVideoURL-v2.3.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
 
 ---
 

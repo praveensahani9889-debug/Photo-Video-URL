@@ -51,7 +51,7 @@ class LinkResolver(
         private const val TAG = "LinkResolver"
         private const val MAX_HTML_BYTES = 600_000L
         private const val MAX_CANDIDATES = 6
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 9; Mobile) PhotoVideoURL/2.2.0"
+        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 9; Mobile) PhotoVideoURL/2.3.0"
 
         const val NOT_SUPPORTED_MESSAGE =
             "Saving photos or videos from this site is not supported here (YouTube, Instagram, Facebook, X/Twitter, " +

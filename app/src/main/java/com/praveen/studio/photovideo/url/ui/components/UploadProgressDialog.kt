@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
@@ -42,6 +43,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -404,6 +409,8 @@ fun UploadProgressDialog(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        var showQr by remember(record.shortId) { mutableStateOf(false) }
+
                         // Action Buttons: Copy, Share, Open
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -445,6 +452,24 @@ fun UploadProgressDialog(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Share")
                             }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // QR code of the link (bubble style with the app logo)
+                        OutlinedButton(
+                            onClick = { showQr = true },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("dialog_qr_btn")
+                        ) {
+                            Icon(imageVector = Icons.Default.QrCode2, contentDescription = "QR code", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("QR code")
+                        }
+                        if (showQr) {
+                            QrCodeDialog(link = record.publicUrl, onDismiss = { showQr = false })
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))

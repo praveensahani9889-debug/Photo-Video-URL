@@ -16,8 +16,8 @@ android {
     applicationId = "com.praveen.studio.photovideo.url"
     minSdk = 28
     targetSdk = 36
-    versionCode = 220
-    versionName = "2.2.0"
+    versionCode = 230
+    versionName = "2.3.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -93,6 +93,8 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  // QR code encoder (the bubble QR drawing is done by the app)
+  implementation(libs.zxing.core)
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

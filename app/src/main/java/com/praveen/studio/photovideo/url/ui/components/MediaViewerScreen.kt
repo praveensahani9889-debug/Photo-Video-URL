@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -167,6 +168,7 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
     }
 
     val pageUrl = "${LinkRules.SITE_URL}/$shortId"
+    var showQr by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -258,6 +260,11 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
                 } catch (_: Exception) {
                     Toast.makeText(context, "Could not copy the link", Toast.LENGTH_SHORT).show()
                 }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            ViewerIconButton(Icons.Default.QrCode2, "QR code") { showQr = true }
+            if (showQr) {
+                QrCodeDialog(link = pageUrl, onDismiss = { showQr = false })
             }
             Spacer(modifier = Modifier.width(8.dp))
             ViewerIconButton(Icons.Default.Share, "Share link") {
