@@ -251,6 +251,29 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
+## 📺 Rewarded ads for Copy / Share link (version 2.4.0)
+In the in-app link viewer, **Copy link** and **Share link** first ask "Watch a short ad to copy / share this link?"
+(Watch Ad / Cancel). Only after the Unity rewarded ad was **completed** the original copy / share code runs (once).
+Skipped or closed ads give no reward. If an ad cannot be shown for a technical reason (no internet, no fill, SDK error,
+timeout, ad blocker) the user gets a short notice and the original action still runs; this is never reported as a reward.
+
+* Code: `ads/` (`AdsManager` state machine, `UnityRewardedBackend` = the only file that uses the Unity SDK 4.19.0,
+  `AdsConfig`, `AdsConsent`, `RewardedOutcomePolicy`) and `ui/components/RewardedActionGate.kt` (dialog + gate).
+* **Premium-ready (not implemented):** `AdsConfig(adsEnabled, premiumAdFree, rewardedAdsEnabled,
+  allowActionWhenAdUnavailable)`. A future, verified Premium entitlement only calls `AdsConfigProvider.update(...)`.
+  With ads off / Premium nothing is initialized and Copy / Share work normally.
+* **Test vs real ads:** debug builds use Unity **test mode** by default; `release` and `optimized` builds always use real
+  ads. The GitHub workflow builds the published APK with `-PadsTestMode=false` (real ads). For development build locally
+  without that flag.
+* IDs (in `app/build.gradle.kts`): Game ID `800434128`, rewarded placement `BP_Rewarded_Android`. Interstitial and
+  banner placements are reserved, not used. The Organization Core ID and the Stats API key are not needed.
+* Privacy: no consent screen yet, so only non-personalized (non-behavioral) ads are requested. A consent screen only has
+  to call `AdsConsent(context).setState(...)`. Check the privacy / consent requirements of your regions before launch.
+* Safety net: if the Unity code ever fails to compile, the GitHub workflow builds an APK **without** ads
+  (`app/src/fallback/UnityRewardedBackend.kt.txt`) and shows a warning, so there is always an APK.
+* Unity dashboard: rewarded placement `BP_Rewarded_Android` must exist and be active, and the project must be set up for
+  this app. Real ads may need a published store listing to fill.
+
 ## 🔳 QR code (version 2.3.0)
 Wherever a link is shown (upload result, History card, in-app link viewer) there is a **QR code** button. It opens a
 bubble style QR (round gradient dots, soft corners, the app logo in the middle) and **Download QR** saves it as a
@@ -299,8 +322,8 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v2.3.0.apk` – normal build, the safest one.
-* `PhotoVideoURL-v2.3.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+* `PhotoVideoURL-v2.4.0.apk` – normal build, the safest one.
+* `PhotoVideoURL-v2.4.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
 
 ---
 

@@ -44,3 +44,8 @@
 # Classes created through reflection by AndroidX (ViewModels and WorkManager workers)
 -keep class * extends androidx.lifecycle.ViewModel { <init>(...); }
 -keep class * extends androidx.work.ListenableWorker { <init>(...); }
+
+# Unity Ads SDK
+-keep class com.unity3d.ads.** { *; }
+-keep class com.unity3d.services.** { *; }
+-dontwarn com.unity3d.**

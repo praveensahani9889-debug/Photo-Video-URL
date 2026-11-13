@@ -1,0 +1,30 @@
+package com.praveen.studio.photovideo.url.ads
+
+import android.app.Activity
+import android.content.Context
+
+/**
+ * Stand-in used by the GitHub workflow ONLY when the Unity Ads code failed to compile: the app is built without
+ * the ad SDK, so Copy / Share simply work without an ad. It never reports a reward.
+ */
+class UnityRewardedBackend : RewardedAdBackend {
+    override val isAvailable: Boolean = false
+
+    override fun initialize(
+        context: Context,
+        gameId: String,
+        testMode: Boolean,
+        privacy: AdPrivacy,
+        onComplete: (BackendInit) -> Unit
+    ) {
+        onComplete(BackendInit.Failure(BackendError(-1, "Unity Ads SDK is not part of this build")))
+    }
+
+    override fun load(placementId: String, onComplete: (BackendLoad) -> Unit) {
+        onComplete(BackendLoad.Failed(BackendError(-1, "Unity Ads SDK is not part of this build")))
+    }
+
+    override fun show(activity: Activity, callbacks: BackendShowCallbacks) {
+        callbacks.onFailed(BackendError(-1, "Unity Ads SDK is not part of this build"))
+    }
+}

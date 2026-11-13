@@ -8,6 +8,11 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+// Test ads are the default for debug builds. The GitHub workflow passes -PadsTestMode=false for the published APK.
+// release / optimized builds always use real ads (hard coded below), so a test-mode release cannot be shipped by mistake.
+val adsTestModeForDebug: String =
+  (project.findProperty("adsTestMode") as String?)?.trim()?.lowercase()?.takeIf { it == "true" || it == "false" } ?: "true"
+
 android {
   namespace = "com.praveen.studio.photovideo.url"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -16,8 +21,15 @@ android {
     applicationId = "com.praveen.studio.photovideo.url"
     minSdk = 28
     targetSdk = 36
-    versionCode = 230
-    versionName = "2.3.0"
+    versionCode = 240
+    versionName = "2.4.0"
+
+    // Unity Ads. The Organization Core ID and the Stats API key are NOT needed in the app.
+    buildConfigField("String", "UNITY_GAME_ID", "\"800434128\"")
+    buildConfigField("String", "UNITY_REWARDED_PLACEMENT", "\"BP_Rewarded_Android\"")
+    // reserved for later (not used yet)
+    buildConfigField("String", "UNITY_INTERSTITIAL_PLACEMENT", "\"BP_Interstitial_Android\"")
+    buildConfigField("String", "UNITY_BANNER_PLACEMENT", "\"BP_Banner_Android\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -48,11 +60,13 @@ android {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("release")
+      buildConfigField("boolean", "UNITY_TEST_MODE", "false")   // production ads
     }
     debug {
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
       signingConfig = signingConfigs.getByName("debugConfig")
+      buildConfigField("boolean", "UNITY_TEST_MODE", adsTestModeForDebug)   // test ads unless -PadsTestMode=false
     }
     // Small APK for the GitHub workflow (R8 removes unused code and resources, see proguard-rules.pro).
     // Built without the private upload key. The normal debug APK stays the main, safest download.
@@ -63,6 +77,7 @@ android {
       isDebuggable = false
       signingConfig = signingConfigs.getByName("debugConfig")
       matchingFallbacks += listOf("release")
+      buildConfigField("boolean", "UNITY_TEST_MODE", "false")   // production ads
     }
   }
   compileOptions {
@@ -93,6 +108,8 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  // Rewarded ads (Copy / Share link). Official Unity Ads SDK 4.19.0.
+  implementation(libs.unity.ads)
   // QR code encoder (the bubble QR drawing is done by the app)
   implementation(libs.zxing.core)
   implementation(platform(libs.androidx.compose.bom))

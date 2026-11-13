@@ -11,6 +11,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.praveen.studio.photovideo.url.ads.AdsManager
 import com.praveen.studio.photovideo.url.domain.util.CacheCleaner
 import kotlin.system.exitProcess
 
@@ -53,6 +54,13 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
         }
 
         initFirebase()
+
+        // Unity Ads (rewarded ads for Copy / Share link). Starts once, only when ads are enabled in AdsConfig.
+        try {
+            AdsManager.initialize(this)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Ads start notice: ${t.message}")
+        }
 
         // Leftover ZIPs / extracted APKs / PDF previews from earlier sessions are not needed any more.
         try {

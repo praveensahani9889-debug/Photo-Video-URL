@@ -169,6 +169,7 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
 
     val pageUrl = "${LinkRules.SITE_URL}/$shortId"
     var showQr by remember { mutableStateOf(false) }
+    val adGate = rememberRewardedActionGate()
 
     Box(
         modifier = Modifier
@@ -253,12 +254,15 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
             ViewerIconButton(Icons.Default.Close, "Close", onClose)
             Spacer(modifier = Modifier.weight(1f))
             ViewerIconButton(Icons.Default.ContentCopy, "Copy link") {
-                try {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Link", pageUrl))
-                    Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
-                } catch (_: Exception) {
-                    Toast.makeText(context, "Could not copy the link", Toast.LENGTH_SHORT).show()
+                // rewarded ad first; the original copy code below runs once the ad was completed
+                adGate.request(GatedAction.COPY_LINK) {
+                    try {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Link", pageUrl))
+                        Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "Could not copy the link", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -268,16 +272,20 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
             }
             Spacer(modifier = Modifier.width(8.dp))
             ViewerIconButton(Icons.Default.Share, "Share link") {
-                try {
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, pageUrl)
+                // rewarded ad first; the original share code below runs once the ad was completed
+                adGate.request(GatedAction.SHARE_LINK) {
+                    try {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, pageUrl)
+                        }
+                        context.startActivity(Intent.createChooser(send, "Share link"))
+                    } catch (_: Exception) {
+                        Toast.makeText(context, "Could not share the link", Toast.LENGTH_SHORT).show()
                     }
-                    context.startActivity(Intent.createChooser(send, "Share link"))
-                } catch (_: Exception) {
-                    Toast.makeText(context, "Could not share the link", Toast.LENGTH_SHORT).show()
                 }
             }
+            RewardedActionDialogs(adGate)
         }
     }
 }

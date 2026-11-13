@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Advertising ID for the ad SDK (needed for Android 13+, see the Unity Ads installation guide) -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+
     <!-- Direct storage access for the in-app picker (photos, videos, documents, files, APKs) -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
