@@ -251,7 +251,7 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
-## 📺 Ads (version 2.4.1)
+## 📺 Ads (version 2.4.2)
 **Automatic ad after a link was created:** when an upload is done, an ad (Unity *Interstitial* placement
 `BP_Interstitial_Android`) shows by itself BEFORE the result page (link, Copy, Share, QR). Copy / Share / QR are not
 touched. If no ad can be shown (no internet, no fill, SDK error) the result page appears at once; the user never waits
@@ -325,8 +325,8 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v2.4.1.apk` – normal build, the safest one.
-* `PhotoVideoURL-v2.4.1-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+* `PhotoVideoURL-v2.4.2.apk` – normal build, the safest one.
+* `PhotoVideoURL-v2.4.2-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
 
 ---
 
