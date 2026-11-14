@@ -22,20 +22,29 @@ class RewardedRequest internal constructor(internal val callback: (RewardedResul
     internal var settle: Runnable? = null
 }
 
+/** One "show an ad, then continue" request (interstitial). */
+internal class InterstitialRequest(val activity: WeakReference<Activity>, val onDone: () -> Unit) {
+    var done = false
+    var wait: Runnable? = null
+    var safety: Runnable? = null
+}
+
 /**
- * Loads and shows rewarded ads. All state lives on the main thread; the ad network callbacks are moved there.
+ * Loads and shows ads. All state lives on the main thread; the ad network callbacks are moved there.
  *
  *  - the SDK starts once (and only when [AdsConfig] allows ads);
- *  - one ad at a time, one reward per ad;
- *  - the next ad is loaded in the background after an ad was used;
- *  - leaving the screen cancels the request (nothing is executed later);
- *  - every technical problem becomes [RewardedResult.Unavailable] (never a reward, never a crash).
+ *  - one ad at a time; the next ad is loaded in the background;
+ *  - [showInterstitialThenContinue]: an ad shows by itself and the app continues afterwards (also when no ad can be
+ *    shown: it never keeps the user waiting for long and never blocks the app);
+ *  - rewarded ads (Copy / Share) are ready but switched off by default (see [AdsConfig]);
+ *  - every technical problem is handled (never a crash, never a fake reward).
  */
 object AdsManager {
     private const val TAG = "AdsManager"
-    private const val REQUEST_TIMEOUT_MS = 15_000L      // start of SDK + load of the ad
+    private const val REQUEST_TIMEOUT_MS = 15_000L      // rewarded: start of SDK + load of the ad
     private const val SHOW_START_TIMEOUT_MS = 10_000L   // ad accepted but never started
     private const val REWARD_SETTLE_MS = 30_000L        // safety: wait for "ad closed" after the reward callback
+    private const val INTERSTITIAL_SAFETY_MS = 120_000L // safety: an ad that never reports "closed"
     private const val AD_MAX_AGE_MS = 15 * 60_000L      // loaded ads expire after a while
     private const val LOAD_RETRY_DELAY_MS = 30_000L     // pause after a failed preload
 
@@ -43,17 +52,25 @@ object AdsManager {
     private enum class LoadState { IDLE, LOADING, LOADED }
 
     private val main = Handler(Looper.getMainLooper())
-    private var backend: RewardedAdBackend = UnityRewardedBackend()
+    private var backend: AdsBackend = UnityAdsBackend()
     private var appContext: Context? = null
 
     private var initState = InitState.NOT_STARTED
     private var initError: BackendError? = null
+    private var showing = false
+
+    // rewarded
     private var loadState = LoadState.IDLE
     private var loadedAt = 0L
     private var lastLoadFailureAt = 0L
-    private var lastLoadError: BackendError? = null
-    private var showing = false
     private var pending: RewardedRequest? = null
+
+    // interstitial
+    private var interstitialState = LoadState.IDLE
+    private var interstitialLoadedAt = 0L
+    private var lastInterstitialFailureAt = 0L
+    private var interstitialError: BackendError? = null
+    private var interstitialWaiter: InterstitialRequest? = null
 
     /** Call once from Application.onCreate. Does nothing when ads are switched off. */
     fun initialize(application: Application) {
@@ -70,10 +87,170 @@ object AdsManager {
         startInitIfNeeded()
     }
 
-    /** Loads an ad in the background so it is ready when the user taps Copy / Share. */
-    fun preloadRewardedAd() {
+    /** Loads ads in the background so they are ready when needed. */
+    fun preloadAds() {
         runOnMain { preloadIfNeeded() }
     }
+
+    fun preloadRewardedAd() = preloadAds()
+
+    /** Short text about the state of the ads (shown in Settings to find out why no ad appears). */
+    fun statusSummary(): String {
+        val mode = if (BuildConfig.UNITY_TEST_MODE) "test ads" else "real ads"
+        val sdk = when {
+            !AdsConfigProvider.current.shouldInitializeSdk -> "ads are switched off"
+            !backend.isAvailable -> "SDK not in this build"
+            else -> when (initState) {
+                InitState.NOT_STARTED -> "SDK not started"
+                InitState.INITIALIZING -> "SDK starting"
+                InitState.READY -> "SDK ready"
+                InitState.FAILED -> "SDK failed (${initError?.code}: ${initError?.message})"
+            }
+        }
+        val ad = when (interstitialState) {
+            LoadState.IDLE -> interstitialError?.let { "no ad (${it.code}: ${it.message})" } ?: "no ad loaded yet"
+            LoadState.LOADING -> "loading an ad"
+            LoadState.LOADED -> "ad ready"
+        }
+        return "Ads: $mode, $sdk, $ad"
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Automatic ad (interstitial)
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Shows an ad now (waiting up to [maxWaitMs] for it to load) and calls [onDone] exactly once, on the main thread,
+     * when the ad was closed - or at once / after the wait when no ad can be shown.
+     */
+    fun showInterstitialThenContinue(activity: Activity, maxWaitMs: Long = 4_000L, onDone: () -> Unit) {
+        runOnMain { startInterstitial(InterstitialRequest(WeakReference(activity), onDone), maxWaitMs) }
+    }
+
+    private fun startInterstitial(request: InterstitialRequest, maxWaitMs: Long) {
+        val config = AdsConfigProvider.current
+        when {
+            !config.shouldShowInterstitialAds || !backend.isAvailable -> finishInterstitial(request)
+            showing || interstitialWaiter != null -> finishInterstitial(request)
+            !isOnline() -> finishInterstitial(request)
+            else -> {
+                if (appContext == null) request.activity.get()?.let { appContext = it.applicationContext }
+                interstitialWaiter = request
+                request.wait = Runnable { finishInterstitial(request) }.also { main.postDelayed(it, maxWaitMs) }
+                if (initState == InitState.FAILED) initState = InitState.NOT_STARTED   // try again
+                if (initState == InitState.NOT_STARTED) startInitIfNeeded() else proceedInterstitial(request)
+            }
+        }
+    }
+
+    private fun proceedInterstitial(request: InterstitialRequest) {
+        if (interstitialWaiter !== request || request.done) return
+        when (initState) {
+            InitState.NOT_STARTED -> startInitIfNeeded()
+            InitState.INITIALIZING -> Unit
+            InitState.FAILED -> finishInterstitial(request)
+            InitState.READY -> {
+                if (interstitialState == LoadState.LOADED &&
+                    System.currentTimeMillis() - interstitialLoadedAt > AD_MAX_AGE_MS
+                ) {
+                    interstitialState = LoadState.IDLE
+                }
+                when (interstitialState) {
+                    LoadState.IDLE -> startInterstitialLoad()
+                    LoadState.LOADING -> Unit
+                    LoadState.LOADED -> showInterstitialAd(request)
+                }
+            }
+        }
+    }
+
+    private fun startInterstitialLoad() {
+        if (interstitialState == LoadState.LOADING) return
+        interstitialState = LoadState.LOADING
+        try {
+            backend.loadInterstitial(BuildConfig.UNITY_INTERSTITIAL_PLACEMENT) { outcome ->
+                runOnMain { onInterstitialLoaded(outcome) }
+            }
+        } catch (t: Throwable) {
+            runOnMain { onInterstitialLoaded(BackendLoad.Failed(BackendError(-1, t.message ?: "load error"))) }
+        }
+    }
+
+    private fun onInterstitialLoaded(outcome: BackendLoad) {
+        when (outcome) {
+            BackendLoad.Loaded -> {
+                interstitialState = LoadState.LOADED
+                interstitialLoadedAt = System.currentTimeMillis()
+                interstitialError = null
+                interstitialWaiter?.let { proceedInterstitial(it) }
+            }
+            is BackendLoad.Failed -> {
+                interstitialState = LoadState.IDLE
+                lastInterstitialFailureAt = System.currentTimeMillis()
+                interstitialError = outcome.error
+                Log.w(TAG, "Interstitial load failed: ${outcome.error.code} ${outcome.error.message}")
+                interstitialWaiter?.let { finishInterstitial(it) }
+            }
+        }
+    }
+
+    private fun showInterstitialAd(request: InterstitialRequest) {
+        val activity = request.activity.get()
+        if (activity == null || activity.isFinishing || activity.isDestroyed) {
+            finishInterstitial(request)
+            return
+        }
+        showing = true
+        interstitialState = LoadState.IDLE   // the loaded ad is used up
+        request.wait?.let { main.removeCallbacks(it) }
+        request.safety = Runnable {
+            showing = false
+            finishInterstitial(request)
+        }.also { main.postDelayed(it, INTERSTITIAL_SAFETY_MS) }
+
+        try {
+            backend.showInterstitial(activity, object : BackendShowCallbacks {
+                override fun onStarted() = Unit
+                override fun onRewardEarned() = Unit
+
+                override fun onFinished(completed: Boolean) = runOnMain {
+                    showing = false
+                    finishInterstitial(request)
+                    afterAd()
+                }
+
+                override fun onFailed(error: BackendError) = runOnMain {
+                    Log.w(TAG, "Interstitial show failed: ${error.code} ${error.message}")
+                    interstitialError = error
+                    showing = false
+                    finishInterstitial(request)
+                    afterAd()
+                }
+            })
+        } catch (t: Throwable) {
+            showing = false
+            finishInterstitial(request)
+            afterAd()
+        }
+    }
+
+    /** Continues the app exactly once. */
+    private fun finishInterstitial(request: InterstitialRequest) {
+        if (request.done) return
+        request.done = true
+        request.wait?.let { main.removeCallbacks(it) }
+        request.safety?.let { main.removeCallbacks(it) }
+        if (interstitialWaiter === request) interstitialWaiter = null
+        try {
+            request.onDone()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Continue handler notice: ${t.message}")
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Rewarded ads (Copy / Share), off by default
+    // ---------------------------------------------------------------------------------------------
 
     /**
      * Asks for a rewarded ad. The [callback] is called once, on the main thread, unless the request is cancelled.
@@ -96,8 +273,6 @@ object AdsManager {
         }
     }
 
-    // ---------------------------------------------------------------------------------------------
-
     private fun startRequest(activity: Activity, request: RewardedRequest) {
         val config = AdsConfigProvider.current
         when {
@@ -119,40 +294,6 @@ object AdsManager {
                 if (appContext == null) appContext = activity.applicationContext
                 if (initState == InitState.FAILED) initState = InitState.NOT_STARTED   // try again (maybe online now)
                 if (initState == InitState.NOT_STARTED) startInitIfNeeded() else proceed(request)
-            }
-        }
-    }
-
-    private fun startInitIfNeeded() {
-        if (initState != InitState.NOT_STARTED) return
-        val context = appContext ?: return
-        if (BuildConfig.UNITY_TEST_MODE && !BuildConfig.DEBUG) {
-            Log.w(TAG, "WARNING: test ads are on in a non-debug build")
-        }
-        initState = InitState.INITIALIZING
-        val privacy = AdsConsent.toPrivacy(AdsConsent(context).state())
-        try {
-            backend.initialize(context, BuildConfig.UNITY_GAME_ID, BuildConfig.UNITY_TEST_MODE, privacy) { outcome ->
-                runOnMain { onInitFinished(outcome) }
-            }
-        } catch (t: Throwable) {
-            runOnMain { onInitFinished(BackendInit.Failure(BackendError(-1, t.message ?: "init error"))) }
-        }
-    }
-
-    private fun onInitFinished(outcome: BackendInit) {
-        when (outcome) {
-            BackendInit.Success -> {
-                initState = InitState.READY
-                initError = null
-                val request = pending
-                if (request != null) proceed(request) else preloadIfNeeded()
-            }
-            is BackendInit.Failure -> {
-                initState = InitState.FAILED
-                initError = outcome.error
-                Log.w(TAG, "Ad SDK start failed: ${outcome.error.code} ${outcome.error.message}")
-                pending?.let { finish(it, RewardedResult.Unavailable(classify(outcome.error), outcome.error.message)) }
             }
         }
     }
@@ -188,7 +329,9 @@ object AdsManager {
         if (loadState == LoadState.LOADING) return
         loadState = LoadState.LOADING
         try {
-            backend.load(BuildConfig.UNITY_REWARDED_PLACEMENT) { outcome -> runOnMain { onLoadFinished(outcome) } }
+            backend.loadRewarded(BuildConfig.UNITY_REWARDED_PLACEMENT) { outcome ->
+                runOnMain { onLoadFinished(outcome) }
+            }
         } catch (t: Throwable) {
             runOnMain { onLoadFinished(BackendLoad.Failed(BackendError(-1, t.message ?: "load error"))) }
         }
@@ -204,8 +347,7 @@ object AdsManager {
             is BackendLoad.Failed -> {
                 loadState = LoadState.IDLE
                 lastLoadFailureAt = System.currentTimeMillis()
-                lastLoadError = outcome.error
-                Log.w(TAG, "Ad load failed: ${outcome.error.code} ${outcome.error.message}")
+                Log.w(TAG, "Rewarded load failed: ${outcome.error.code} ${outcome.error.message}")
                 pending?.let { finish(it, RewardedResult.Unavailable(classify(outcome.error), outcome.error.message)) }
             }
         }
@@ -230,7 +372,7 @@ object AdsManager {
         }.also { main.postDelayed(it, SHOW_START_TIMEOUT_MS) }
 
         try {
-            backend.show(activity, object : BackendShowCallbacks {
+            backend.showRewarded(activity, object : BackendShowCallbacks {
                 override fun onStarted() = runOnMain {
                     request.started = true
                     request.timeout?.let { main.removeCallbacks(it) }
@@ -248,7 +390,7 @@ object AdsManager {
                 }
 
                 override fun onFailed(error: BackendError) = runOnMain {
-                    Log.w(TAG, "Ad show failed: ${error.code} ${error.message}")
+                    Log.w(TAG, "Rewarded show failed: ${error.code} ${error.message}")
                     if (request.rewarded) {
                         onAdEnded(request)
                     } else {
@@ -266,26 +408,10 @@ object AdsManager {
     }
 
     private fun onAdEnded(request: RewardedRequest) {
-        if (request.delivered) {
-            showing = false
-            return
-        }
         showing = false
+        if (request.delivered) return
         finish(request, if (request.rewarded) RewardedResult.Rewarded else RewardedResult.NotCompleted)
         afterAd()
-    }
-
-    private fun afterAd() {
-        main.postDelayed({ preloadIfNeeded() }, 500L)
-    }
-
-    private fun preloadIfNeeded() {
-        val config = AdsConfigProvider.current
-        if (!config.shouldShowRewardedAds || !backend.isAvailable) return
-        if (initState != InitState.READY || showing || loadState != LoadState.IDLE) return
-        if (System.currentTimeMillis() - lastLoadFailureAt < LOAD_RETRY_DELAY_MS) return
-        if (!isOnline()) return
-        startLoad()
     }
 
     /** Delivers a result exactly once; nothing is delivered for a cancelled request. */
@@ -318,6 +444,68 @@ object AdsManager {
         request.settle?.let { main.removeCallbacks(it) }
         request.timeout = null
         request.settle = null
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // SDK start and preloading
+    // ---------------------------------------------------------------------------------------------
+
+    private fun startInitIfNeeded() {
+        if (initState != InitState.NOT_STARTED) return
+        val context = appContext ?: return
+        if (BuildConfig.UNITY_TEST_MODE && !BuildConfig.DEBUG) {
+            Log.w(TAG, "WARNING: test ads are on in a non-debug build")
+        }
+        initState = InitState.INITIALIZING
+        val privacy = AdsConsent.toPrivacy(AdsConsent(context).state())
+        try {
+            backend.initialize(context, BuildConfig.UNITY_GAME_ID, BuildConfig.UNITY_TEST_MODE, privacy) { outcome ->
+                runOnMain { onInitFinished(outcome) }
+            }
+        } catch (t: Throwable) {
+            runOnMain { onInitFinished(BackendInit.Failure(BackendError(-1, t.message ?: "init error"))) }
+        }
+    }
+
+    private fun onInitFinished(outcome: BackendInit) {
+        when (outcome) {
+            BackendInit.Success -> {
+                initState = InitState.READY
+                initError = null
+                val rewardedRequest = pending
+                val interstitialRequest = interstitialWaiter
+                if (rewardedRequest != null) proceed(rewardedRequest)
+                if (interstitialRequest != null) proceedInterstitial(interstitialRequest)
+                if (rewardedRequest == null && interstitialRequest == null) preloadIfNeeded()
+            }
+            is BackendInit.Failure -> {
+                initState = InitState.FAILED
+                initError = outcome.error
+                Log.w(TAG, "Ad SDK start failed: ${outcome.error.code} ${outcome.error.message}")
+                pending?.let { finish(it, RewardedResult.Unavailable(classify(outcome.error), outcome.error.message)) }
+                interstitialWaiter?.let { finishInterstitial(it) }
+            }
+        }
+    }
+
+    private fun afterAd() {
+        main.postDelayed({ preloadIfNeeded() }, 500L)
+    }
+
+    private fun preloadIfNeeded() {
+        val config = AdsConfigProvider.current
+        if (!config.shouldInitializeSdk || !backend.isAvailable) return
+        if (initState != InitState.READY || showing) return
+        if (!isOnline()) return
+        val now = System.currentTimeMillis()
+        if (config.shouldShowRewardedAds && loadState == LoadState.IDLE && now - lastLoadFailureAt >= LOAD_RETRY_DELAY_MS) {
+            startLoad()
+        }
+        if (config.shouldShowInterstitialAds && interstitialState == LoadState.IDLE &&
+            now - lastInterstitialFailureAt >= LOAD_RETRY_DELAY_MS
+        ) {
+            startInterstitialLoad()
+        }
     }
 
     private fun classify(error: BackendError?): AdFailureReason {

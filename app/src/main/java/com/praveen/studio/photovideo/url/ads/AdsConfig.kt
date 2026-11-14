@@ -10,14 +10,22 @@ package com.praveen.studio.photovideo.url.ads
 data class AdsConfig(
     val adsEnabled: Boolean = true,
     val premiumAdFree: Boolean = false,
-    val rewardedAdsEnabled: Boolean = true,
-    val allowActionWhenAdUnavailable: Boolean = true
+    /** Copy / Share ask for a rewarded ad first. Off: Copy / Share work normally. */
+    val rewardedAdsEnabled: Boolean = false,
+    val allowActionWhenAdUnavailable: Boolean = true,
+    /** An ad is shown by itself when a link was created, before the result page. */
+    val interstitialAdsEnabled: Boolean = true
 ) {
-    /** The SDK is only started when ads can really be shown. */
-    val shouldInitializeSdk: Boolean get() = adsEnabled && !premiumAdFree && rewardedAdsEnabled
+    private val adsAllowed: Boolean get() = adsEnabled && !premiumAdFree
+
+    /** The SDK is only started when at least one kind of ad can really be shown. */
+    val shouldInitializeSdk: Boolean get() = adsAllowed && (rewardedAdsEnabled || interstitialAdsEnabled)
 
     /** Copy / Share ask for a rewarded ad only when this is true; otherwise they work normally. */
-    val shouldShowRewardedAds: Boolean get() = shouldInitializeSdk
+    val shouldShowRewardedAds: Boolean get() = adsAllowed && rewardedAdsEnabled
+
+    /** The automatic ad after a link was created. */
+    val shouldShowInterstitialAds: Boolean get() = adsAllowed && interstitialAdsEnabled
 }
 
 object AdsConfigProvider {

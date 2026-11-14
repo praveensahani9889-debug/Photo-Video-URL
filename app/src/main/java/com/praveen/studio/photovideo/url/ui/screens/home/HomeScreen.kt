@@ -43,6 +43,9 @@ import com.praveen.studio.photovideo.url.ui.components.SetupRequiredBanner
 import com.praveen.studio.photovideo.url.ui.components.SetupSupabaseDialog
 import com.praveen.studio.photovideo.url.ui.components.SharedUploadDialog
 import com.praveen.studio.photovideo.url.ui.components.StoragePickerDialog
+import com.praveen.studio.photovideo.url.ads.AdsActivity
+import com.praveen.studio.photovideo.url.ads.AdsConfigProvider
+import com.praveen.studio.photovideo.url.ads.AdsManager
 import com.praveen.studio.photovideo.url.ui.components.UploadCategoryCard
 import com.praveen.studio.photovideo.url.ui.components.UploadProgressDialog
 
@@ -74,6 +77,7 @@ fun HomeScreen(
     }
 
     val context = LocalContext.current
+    LaunchedEffect(Unit) { AdsManager.preloadAds() }   // have an ad ready when a link is created
 
     // System pickers: only used as the "Other folders" fallback. The main way to pick files is the in-app
     // picker (StoragePickerDialog) that reads the device storage directly with the storage permission.
@@ -406,9 +410,33 @@ fun HomeScreen(
         )
     }
 
+    // Automatic ad: when the link was created, an ad shows by itself BEFORE the result page (link, copy, share, QR).
+    // Whatever happens with the ad (none available, error, closed) the result page follows.
+    val successStatus = uploadStatus as? UploadStatus.Success
+    val successKey = successStatus?.let { "${it.record.shortId}#${it.totalCompleted}" }
+    var adHandledFor by remember { mutableStateOf<String?>(null) }
+    val waitingForAd = successKey != null && adHandledFor != successKey &&
+        AdsConfigProvider.current.shouldShowInterstitialAds
+    LaunchedEffect(successKey) {
+        if (successKey != null && waitingForAd) {
+            val activity = AdsActivity.find(context)
+            if (activity == null) {
+                adHandledFor = successKey
+            } else {
+                AdsManager.showInterstitialThenContinue(activity) { adHandledFor = successKey }
+            }
+        }
+    }
+    val shownStatus = if (waitingForAd && successStatus != null) {
+        // "creating the link" stays on screen while the ad loads / plays
+        UploadStatus.RegisteringMetadata(successStatus.record.fileName, successStatus.record.shortId)
+    } else {
+        uploadStatus
+    }
+
     // Live Upload Progress Dialog
     UploadProgressDialog(
-        status = uploadStatus,
+        status = shownStatus,
         onDismiss = { viewModel.dismissProgress() },
         onRetry = { viewModel.retryLastUpload() },
         onNavigateToSettings = onNavigateToSettings

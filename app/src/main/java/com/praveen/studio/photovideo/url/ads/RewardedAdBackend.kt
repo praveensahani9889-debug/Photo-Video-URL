@@ -4,10 +4,10 @@ import android.app.Activity
 import android.content.Context
 
 /**
- * The ad network behind [AdsManager]. Only [UnityRewardedBackend] knows the Unity SDK, so the rest of the app
- * (and the Copy / Share code) never depends on it.
+ * The ad network behind [AdsManager]. Only [UnityAdsBridge] (Java) knows the Unity SDK, so the rest of the app
+ * never depends on it.
  */
-interface RewardedAdBackend {
+interface AdsBackend {
     /** false when the SDK is not part of this build. */
     val isAvailable: Boolean
 
@@ -19,10 +19,15 @@ interface RewardedAdBackend {
         onComplete: (BackendInit) -> Unit
     )
 
-    fun load(placementId: String, onComplete: (BackendLoad) -> Unit)
+    fun loadRewarded(placementId: String, onComplete: (BackendLoad) -> Unit)
 
-    /** Shows the ad that [load] delivered (an ad can be shown only once). */
-    fun show(activity: Activity, callbacks: BackendShowCallbacks)
+    /** Shows the ad that [loadRewarded] delivered (an ad can be shown only once). */
+    fun showRewarded(activity: Activity, callbacks: BackendShowCallbacks)
+
+    fun loadInterstitial(placementId: String, onComplete: (BackendLoad) -> Unit)
+
+    /** Shows the ad that [loadInterstitial] delivered (an ad can be shown only once). */
+    fun showInterstitial(activity: Activity, callbacks: BackendShowCallbacks)
 }
 
 data class BackendError(val code: Int, val message: String)

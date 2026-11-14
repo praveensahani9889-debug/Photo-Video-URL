@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
+import com.praveen.studio.photovideo.url.ads.AdsManager
 import com.praveen.studio.photovideo.url.domain.util.CacheCleaner
 import com.praveen.studio.photovideo.url.ui.theme.AccentAmber
 import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
@@ -675,6 +676,18 @@ fun SettingsScreen(
                             text = "App cache: ${CacheCleaner.format(cacheBytes)} (temporary files and image previews)",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        // Ads status (tap to refresh): shows why an ad does not appear (SDK / no fill / test or real ads)
+                        var adsStatus by remember { mutableStateOf(AdsManager.statusSummary()) }
+                        Text(
+                            text = adsStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.clickable {
+                                AdsManager.preloadAds()
+                                adsStatus = AdsManager.statusSummary()
+                            }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedButton(

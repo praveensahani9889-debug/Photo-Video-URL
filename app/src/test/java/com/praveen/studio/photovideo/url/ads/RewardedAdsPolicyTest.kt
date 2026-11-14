@@ -12,30 +12,40 @@ class RewardedAdsPolicyTest {
         val config = AdsConfig()
         assertTrue(config.adsEnabled)
         assertFalse(config.premiumAdFree)
-        assertTrue(config.rewardedAdsEnabled)
+        assertFalse(config.rewardedAdsEnabled)          // Copy / Share work without an ad
+        assertTrue(config.interstitialAdsEnabled)       // automatic ad after a link was created
         assertTrue(config.allowActionWhenAdUnavailable)
-        assertTrue(config.shouldShowRewardedAds)
+        assertFalse(config.shouldShowRewardedAds)
+        assertTrue(config.shouldShowInterstitialAds)
         assertTrue(config.shouldInitializeSdk)
     }
 
     @Test
     fun adsOffMeansNoSdkAndNoAds() {
-        val config = AdsConfig(adsEnabled = false)
+        val config = AdsConfig(adsEnabled = false, rewardedAdsEnabled = true)
         assertFalse(config.shouldInitializeSdk)
         assertFalse(config.shouldShowRewardedAds)
+        assertFalse(config.shouldShowInterstitialAds)
     }
 
     @Test
     fun premiumAdFreeMeansNoAds() {
-        val config = AdsConfig(premiumAdFree = true)
+        val config = AdsConfig(premiumAdFree = true, rewardedAdsEnabled = true)
         assertFalse(config.shouldInitializeSdk)
         assertFalse(config.shouldShowRewardedAds)
+        assertFalse(config.shouldShowInterstitialAds)
     }
 
     @Test
     fun rewardedAdsOffMeansCopyAndShareWorkNormally() {
         val config = AdsConfig(rewardedAdsEnabled = false)
         assertFalse(config.shouldShowRewardedAds)
+    }
+
+    @Test
+    fun sdkIsNotStartedWhenNoKindOfAdIsEnabled() {
+        val config = AdsConfig(rewardedAdsEnabled = false, interstitialAdsEnabled = false)
+        assertFalse(config.shouldInitializeSdk)
     }
 
     @Test

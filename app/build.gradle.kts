@@ -21,8 +21,8 @@ android {
     applicationId = "com.praveen.studio.photovideo.url"
     minSdk = 28
     targetSdk = 36
-    versionCode = 240
-    versionName = "2.4.0"
+    versionCode = 241
+    versionName = "2.4.1"
 
     // Unity Ads. The Organization Core ID and the Stats API key are NOT needed in the app.
     buildConfigField("String", "UNITY_GAME_ID", "\"800434128\"")

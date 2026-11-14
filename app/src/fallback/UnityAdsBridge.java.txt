@@ -1,0 +1,53 @@
+package com.praveen.studio.photovideo.url.ads;
+
+import android.app.Activity;
+
+/**
+ * Stand-in used by the GitHub workflow ONLY when the Unity Ads code failed to compile: the app is built without the
+ * ad SDK, so no ads are shown and nothing else changes. It never reports a reward.
+ */
+public final class UnityAdsBridge {
+    private UnityAdsBridge() {
+    }
+
+    public static final boolean AVAILABLE = false;
+
+    public interface InitCallback {
+        void onResult(boolean success, int code, String message);
+    }
+
+    public interface LoadCallback {
+        void onResult(boolean loaded, int code, String message);
+    }
+
+    public interface ShowCallback {
+        void onStarted();
+
+        void onRewarded();
+
+        void onFinished(boolean completed);
+
+        void onFailed(int code, String message);
+    }
+
+    public static void initialize(String gameId, boolean testMode, boolean nonBehavioral, Boolean userConsent,
+                                  InitCallback callback) {
+        callback.onResult(false, -1, "Unity Ads SDK is not part of this build");
+    }
+
+    public static void loadRewarded(String placementId, LoadCallback callback) {
+        callback.onResult(false, -1, "Unity Ads SDK is not part of this build");
+    }
+
+    public static void showRewarded(Activity activity, ShowCallback callback) {
+        callback.onFailed(-1, "Unity Ads SDK is not part of this build");
+    }
+
+    public static void loadInterstitial(String placementId, LoadCallback callback) {
+        callback.onResult(false, -1, "Unity Ads SDK is not part of this build");
+    }
+
+    public static void showInterstitial(Activity activity, ShowCallback callback) {
+        callback.onFailed(-1, "Unity Ads SDK is not part of this build");
+    }
+}

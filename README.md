@@ -251,28 +251,31 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
-## 📺 Rewarded ads for Copy / Share link (version 2.4.0)
-In the in-app link viewer, **Copy link** and **Share link** first ask "Watch a short ad to copy / share this link?"
-(Watch Ad / Cancel). Only after the Unity rewarded ad was **completed** the original copy / share code runs (once).
-Skipped or closed ads give no reward. If an ad cannot be shown for a technical reason (no internet, no fill, SDK error,
-timeout, ad blocker) the user gets a short notice and the original action still runs; this is never reported as a reward.
-
-* Code: `ads/` (`AdsManager` state machine, `UnityRewardedBackend` = the only file that uses the Unity SDK 4.19.0,
-  `AdsConfig`, `AdsConsent`, `RewardedOutcomePolicy`) and `ui/components/RewardedActionGate.kt` (dialog + gate).
+## 📺 Ads (version 2.4.1)
+**Automatic ad after a link was created:** when an upload is done, an ad (Unity *Interstitial* placement
+`BP_Interstitial_Android`) shows by itself BEFORE the result page (link, Copy, Share, QR). Copy / Share / QR are not
+touched. If no ad can be shown (no internet, no fill, SDK error) the result page appears at once; the user never waits
+more than a few seconds and the app never gets stuck.
+* Interstitial is the right format for an ad that shows by itself. A *Rewarded* ad must be started by the user
+  (Unity rules), so the rewarded Copy / Share flow is kept in the code but switched off (`rewardedAdsEnabled = false`).
+* Code: `ads/` (`AdsManager`, `AdsConfig`, `AdsConsent`, `UnityAdsBridge.java` = the only file that uses the Unity SDK
+  4.19.0, written in Java) and `ui/components/RewardedActionGate.kt` (rewarded flow, off).
 * **Premium-ready (not implemented):** `AdsConfig(adsEnabled, premiumAdFree, rewardedAdsEnabled,
-  allowActionWhenAdUnavailable)`. A future, verified Premium entitlement only calls `AdsConfigProvider.update(...)`.
-  With ads off / Premium nothing is initialized and Copy / Share work normally.
-* **Test vs real ads:** debug builds use Unity **test mode** by default; `release` and `optimized` builds always use real
-  ads. The GitHub workflow builds the published APK with `-PadsTestMode=false` (real ads). For development build locally
-  without that flag.
-* IDs (in `app/build.gradle.kts`): Game ID `800434128`, rewarded placement `BP_Rewarded_Android`. Interstitial and
-  banner placements are reserved, not used. The Organization Core ID and the Stats API key are not needed.
+  allowActionWhenAdUnavailable, interstitialAdsEnabled)`. A future, verified Premium entitlement only calls
+  `AdsConfigProvider.update(...)`. With ads off / Premium nothing is initialized.
+* **Why no ad shows?** Settings > "Ads: ..." line (tap to refresh) shows test or real ads, SDK state and the last ad
+  error (for example `52100` = no fill). New Unity placements can take a while before real ads fill. To check that
+  everything works, use **test ads**: GitHub > Settings > Secrets and variables > Actions > Variables > add
+  `ADS_TEST_MODE` = `true`, run the workflow, and set it back to `false` for real ads.
+* **Test vs real ads:** debug builds use Unity test mode by default; the GitHub workflow passes
+  `-PadsTestMode=` (variable above, default `false` = real ads); `release` / `optimized` always use real ads.
+* IDs (in `app/build.gradle.kts`): Game ID `800434128`, rewarded `BP_Rewarded_Android`, interstitial
+  `BP_Interstitial_Android`, banner `BP_Banner_Android` (not used). The Organization Core ID and the Stats API key are
+  not needed in the app.
 * Privacy: no consent screen yet, so only non-personalized (non-behavioral) ads are requested. A consent screen only has
-  to call `AdsConsent(context).setState(...)`. Check the privacy / consent requirements of your regions before launch.
+  to call `AdsConsent(context).setState(...)`. Check the consent rules of your regions before launch.
 * Safety net: if the Unity code ever fails to compile, the GitHub workflow builds an APK **without** ads
-  (`app/src/fallback/UnityRewardedBackend.kt.txt`) and shows a warning, so there is always an APK.
-* Unity dashboard: rewarded placement `BP_Rewarded_Android` must exist and be active, and the project must be set up for
-  this app. Real ads may need a published store listing to fill.
+  (`app/src/fallback/UnityAdsBridge.java.txt`) and shows a warning, so there is always an APK.
 
 ## 🔳 QR code (version 2.3.0)
 Wherever a link is shown (upload result, History card, in-app link viewer) there is a **QR code** button. It opens a
@@ -322,8 +325,8 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v2.4.0.apk` – normal build, the safest one.
-* `PhotoVideoURL-v2.4.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+* `PhotoVideoURL-v2.4.1.apk` – normal build, the safest one.
+* `PhotoVideoURL-v2.4.1-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
 
 ---
 
