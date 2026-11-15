@@ -230,6 +230,7 @@ fun HomeScreen(
                 item {
                     SetupRequiredBanner(
                         freeUploadsRemaining = userDetails.freeUploadsRemaining,
+                        freeLimit = userDetails.freeTierMax.toInt(),
                         onSelectFreePhotos = {
                             pickerTrial = true
                             pickerCategory = MediaCategory.IMAGES

@@ -43,6 +43,7 @@ import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 @Composable
 fun SetupRequiredBanner(
     freeUploadsRemaining: Int,
+    freeLimit: Int = 3,
     onSelectFreePhotos: () -> Unit,
     onConfigureSettings: () -> Unit,
     modifier: Modifier = Modifier
@@ -91,7 +92,7 @@ fun SetupRequiredBanner(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "Free Demo Photos ($freeUploadsRemaining/3 left)",
+                            text = "Free Demo Photos ($freeUploadsRemaining/$freeLimit left)",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp

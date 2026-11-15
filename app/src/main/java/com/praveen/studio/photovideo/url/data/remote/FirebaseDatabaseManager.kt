@@ -11,6 +11,8 @@ import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.PublicLinkDetails
 import com.praveen.studio.photovideo.url.data.model.PublicLinkLookup
 import com.praveen.studio.photovideo.url.data.model.PublicLinkRecord
+import com.praveen.studio.photovideo.url.data.model.AppControl
+import com.praveen.studio.photovideo.url.data.model.AppControlStore
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UserDetails
@@ -160,13 +162,59 @@ class FirebaseDatabaseManager {
                         "contact" to "https://ivu.gt.tc/contact",
                         "supportUrl" to "https://ivu.gt.tc/contact",
                         "domain" to "https://ivu.gt.tc",
-                        "version" to "2.4.2"
+                        "version" to "2.5.0"
                     )
                 ).await()
             }
             metadataChecked = true
         } catch (t: Throwable) {
             Log.w(TAG, "initializeAppMetadata notice: ${t.message}")
+        }
+    }
+
+    /**
+     * Reads the remote switches from `app/backend` (demo on/off + limit, maintenance, new update).
+     * Returns null when they cannot be read (offline); the caller then keeps the last known values.
+     */
+    suspend fun fetchAppControl(): AppControl? {
+        val root = appRef() ?: return null
+        return try {
+            val snap = withTimeout(LOOKUP_TIMEOUT_MS) { root.child("backend").get().await() }
+            if (!snap.exists()) {
+                AppControl()
+            } else {
+                fun text(key: String): String = snap.child(key).getValue(String::class.java)?.trim().orEmpty()
+                val limitNode = snap.child("demoImageLimit")
+                AppControl(
+                    demoEnabled = readBoolean(snap.child("demoEnabled"), true),
+                    demoImageLimit = if (limitNode.exists()) getNumberAsLong(limitNode).coerceAtLeast(0L) else 3L,
+                    maintenance = readBoolean(snap.child("maintenance"), false),
+                    maintenanceMessage = text("maintenanceMessage"),
+                    newUpdate = readBoolean(snap.child("newUpdate"), false),
+                    latestVersion = text("latestVersion"),
+                    updateLink = text("updateLink"),
+                    forceUpdate = readBoolean(snap.child("forceUpdate"), false),
+                    updateMessage = text("updateMessage")
+                )
+            }
+        } catch (e: TimeoutCancellationException) {
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "fetchAppControl notice: ${t.message}")
+            null
+        }
+    }
+
+    /** true / false can be typed in the console as a boolean, as "true" / "false" text or as 1 / 0. */
+    private fun readBoolean(snapshot: DataSnapshot, default: Boolean): Boolean {
+        if (!snapshot.exists()) return default
+        return when (val value = snapshot.value) {
+            is Boolean -> value
+            is String -> value.trim().equals("true", ignoreCase = true) || value.trim() == "1"
+            is Number -> value.toInt() != 0
+            else -> default
         }
     }
 
@@ -252,7 +300,8 @@ class FirebaseDatabaseManager {
             val key = snapshot.child("supabaseKey").getValue(String::class.java).orEmpty()
             val premium = snapshot.child("premium").getValue(Boolean::class.java) ?: false
             val freeUsed = getNumberAsLong(snapshot.child("freeTierUploadsUsed"))
-            val freeMax = getNumberAsLong(snapshot.child("freeTierMax")).takeIf { it > 0 } ?: 3L
+            // the number of free demo photos is set by the developer in app/backend (demoEnabled / demoImageLimit)
+            val freeMax = AppControlStore.current.effectiveDemoLimit
 
             UserDetails(
                 name = name,

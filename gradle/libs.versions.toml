@@ -1,4 +1,5 @@
 [versions]
+mlkitBarcode = "17.3.0"
 unityAds = "4.19.0"
 zxing = "3.5.3"
 agp = "9.1.1"
@@ -47,6 +48,8 @@ securityCrypto = "1.1.0-alpha06"
 
 
 [libraries]
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
 unity-ads = { group = "com.unity3d.ads", name = "unity-ads", version.ref = "unityAds" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

@@ -24,11 +24,19 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import com.praveen.studio.photovideo.url.LinkSearchActivity
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -39,7 +47,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
+import com.praveen.studio.photovideo.url.BuildConfig
+import com.praveen.studio.photovideo.url.data.model.AppControlStore
+import com.praveen.studio.photovideo.url.data.remote.AppControlManager
 import com.praveen.studio.photovideo.url.data.remote.IdentityManager
+import com.praveen.studio.photovideo.url.domain.util.VersionUtils
+import com.praveen.studio.photovideo.url.ui.components.MaintenanceScreen
+import com.praveen.studio.photovideo.url.ui.components.UpdateAvailableDialog
 import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
 import com.praveen.studio.photovideo.url.ui.components.MediaViewerScreen
 import com.praveen.studio.photovideo.url.ui.components.SplashScreen
@@ -49,7 +63,10 @@ import com.praveen.studio.photovideo.url.ui.screens.home.HomeScreen
 import com.praveen.studio.photovideo.url.ui.screens.settings.SettingsScreen
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 import com.praveen.studio.photovideo.url.ui.theme.PhotoVideoUrlTheme
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun PhotoVideoApp() {
@@ -65,10 +82,37 @@ fun PhotoVideoApp() {
     // The phone's permanent profile ID (same after re-install / clear data) must be known before any screen
     // reads its history or counters, so the screens start once it is resolved (a moment, or a few seconds offline).
     var identityReady by remember { mutableStateOf(false) }
+    val appControl by AppControlStore.state.collectAsState()
+    val controlScope = rememberCoroutineScope()
+
+    // Android 13+: ask once for the permission to show messages (notifications) from Firebase
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(identityReady, showSplash) {
+        if (identityReady && !showSplash && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val flags = context.getSharedPreferences("app_flags", Context.MODE_PRIVATE)
+            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            if (!granted && !flags.getBoolean("notification_permission_asked", false)) {
+                flags.edit().putBoolean("notification_permission_asked", true).apply()
+                try {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } catch (_: Throwable) {
+                }
+            }
+        }
+    }
+    var updateDialogDismissed by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val startedAt = System.currentTimeMillis()
         try {
-            IdentityManager.prepare(context)
+            coroutineScope {
+                // remote switches (maintenance, update, demo) are read in parallel with the phone profile
+                val control = async { AppControlManager.refresh() }
+                IdentityManager.prepare(context)
+                control.await()
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Throwable) {
@@ -92,7 +136,7 @@ fun PhotoVideoApp() {
 
     PhotoVideoUrlTheme(themePreference = themePreference) {
         Box(modifier = Modifier.fillMaxSize()) {
-        if (identityReady) {
+        if (identityReady && !appControl.maintenance) {
         Scaffold(
             bottomBar = {
                 NavigationBar(
@@ -173,6 +217,21 @@ fun PhotoVideoApp() {
             MediaViewerScreen(
                 shortId = shortId,
                 onClose = { IncomingIntentManager.clearDeepLink() }
+            )
+        }
+
+        // "New update available" (only when the version in app/backend is higher than this app)
+        val updateAvailable = identityReady && !appControl.maintenance && appControl.newUpdate &&
+            VersionUtils.isNewer(appControl.latestVersion, BuildConfig.VERSION_NAME)
+        if (updateAvailable && (!updateDialogDismissed || appControl.forceUpdate)) {
+            UpdateAvailableDialog(control = appControl, onLater = { updateDialogDismissed = true })
+        }
+
+        // Maintenance: the app does not open
+        if (identityReady && appControl.maintenance) {
+            MaintenanceScreen(
+                control = appControl,
+                onRetry = { controlScope.launch { AppControlManager.refresh() } }
             )
         }
 

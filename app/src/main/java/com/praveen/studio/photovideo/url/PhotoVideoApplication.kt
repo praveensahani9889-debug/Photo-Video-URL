@@ -11,6 +11,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.messaging.FirebaseMessaging
 import com.praveen.studio.photovideo.url.ads.AdsManager
 import com.praveen.studio.photovideo.url.domain.util.CacheCleaner
 import kotlin.system.exitProcess
@@ -54,6 +55,14 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
         }
 
         initFirebase()
+
+        // Messages from Firebase (Cloud Messaging): notification channel + topic "all"
+        try {
+            AppNotifications.createChannel(this)
+            FirebaseMessaging.getInstance().subscribeToTopic(AppNotifications.TOPIC_ALL)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Messaging start notice: ${t.message}")
+        }
 
         // Unity Ads (rewarded ads for Copy / Share link). Starts once, only when ads are enabled in AdsConfig.
         try {

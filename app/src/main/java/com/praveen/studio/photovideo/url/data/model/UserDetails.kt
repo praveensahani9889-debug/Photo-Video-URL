@@ -11,7 +11,7 @@ data class UserDetails(
     var supabaseKey: String = "",
     var premium: Boolean = false,
     var freeTierUploadsUsed: Long = 0L,
-    var freeTierMax: Long = 3L
+    var freeTierMax: Long = AppControlStore.current.effectiveDemoLimit
 ) {
     val totalAllUploads: Long
         get() = totalPhotosUpload + totalVideosUpload + totalDocumentsUpload + totalFilesUpload + totalApksUpload

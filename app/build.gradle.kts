@@ -21,8 +21,8 @@ android {
     applicationId = "com.praveen.studio.photovideo.url"
     minSdk = 28
     targetSdk = 36
-    versionCode = 242
-    versionName = "2.4.2"
+    versionCode = 250
+    versionName = "2.5.0"
 
     // Unity Ads. The Organization Core ID and the Stats API key are NOT needed in the app.
     buildConfigField("String", "UNITY_GAME_ID", "\"800434128\"")
@@ -138,6 +138,14 @@ dependencies {
   // (not used by the app code, removed from the APK) implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   implementation(libs.firebase.database)
+  // Messages published from the Firebase console (Cloud Messaging)
+  implementation(libs.firebase.messaging)
+  // QR scanner: CameraX (camera) + ML Kit (reads the code)
+  implementation(libs.androidx.camera.core)
+  implementation(libs.androidx.camera.camera2)
+  implementation(libs.androidx.camera.lifecycle)
+  implementation(libs.androidx.camera.view)
+  implementation(libs.mlkit.barcode.scanning)
   // implementation(libs.firebase.firestore)
 
   // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google

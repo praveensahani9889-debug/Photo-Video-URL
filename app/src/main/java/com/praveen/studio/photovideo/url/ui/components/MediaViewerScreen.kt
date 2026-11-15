@@ -60,6 +60,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.praveen.studio.photovideo.url.data.remote.FoundItem
+import com.praveen.studio.photovideo.url.data.remote.FoundKind
+import com.praveen.studio.photovideo.url.domain.util.DownloadHelper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -171,6 +176,37 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
     var showQr by remember { mutableStateOf(false) }
     val adGate = rememberRewardedActionGate()
 
+    // Download button: the file is downloaded straight into the Downloads folder (notification with progress),
+    // it does not open the browser / the Supabase page. Android 9 asks for the storage permission first.
+    var pendingDownload by remember { mutableStateOf<FoundItem?>(null) }
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val item = pendingDownload
+        pendingDownload = null
+        if (item != null) {
+            if (granted) enqueueViewerDownload(context, item)
+            else Toast.makeText(context, "Storage permission is needed to save the file", Toast.LENGTH_LONG).show()
+        }
+    }
+    fun startViewerDownload(url: String, name: String, mime: String, kind: FoundKind) {
+        val item = FoundItem(
+            fileName = LinkRules.safeFilename(name, "download"),
+            url = url,
+            downloadUrl = url,
+            mime = mime,
+            kind = kind,
+            sizeBytes = null,
+            source = "Photo Video URL"
+        )
+        if (DownloadHelper.needsWritePermission(context)) {
+            pendingDownload = item
+            storagePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            enqueueViewerDownload(context, item)
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -191,13 +227,22 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
             is ViewerContent.Pdf -> PdfViewer(
                 shortId = shortId,
                 content = c,
-                onDownload = { openExternally(context, c.downloadUrl ?: c.url) },
+                onDownload = {
+                    startViewerDownload(c.downloadUrl ?: c.url, c.name, "application/pdf", FoundKind.DOCUMENT)
+                },
                 modifier = Modifier.fillMaxSize()
             )
 
             is ViewerContent.Download -> DownloadCard(
                 content = c,
-                onDownload = { openExternally(context, c.downloadUrl) },
+                onDownload = {
+                    startViewerDownload(
+                        c.downloadUrl,
+                        c.name,
+                        c.mime.ifBlank { "application/octet-stream" },
+                        if (c.type == "document") FoundKind.DOCUMENT else FoundKind.FILE
+                    )
+                },
                 modifier = Modifier.align(Alignment.Center)
             )
 
@@ -986,4 +1031,19 @@ private fun Context.findActivity(): Activity? {
         current = current.baseContext
     }
     return null
+}
+
+private fun enqueueViewerDownload(context: Context, item: FoundItem) {
+    DownloadHelper.enqueue(context, item).fold(
+        onSuccess = {
+            Toast.makeText(
+                context,
+                "Download started. See the notification or your Downloads folder.",
+                Toast.LENGTH_LONG
+            ).show()
+        },
+        onFailure = {
+            Toast.makeText(context, "Could not start the download: ${it.message}", Toast.LENGTH_LONG).show()
+        }
+    )
 }

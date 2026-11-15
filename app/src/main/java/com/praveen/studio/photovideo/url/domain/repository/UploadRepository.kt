@@ -11,6 +11,7 @@ import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.model.UserDetails
+import com.praveen.studio.photovideo.url.data.model.AppControlStore
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
 import com.praveen.studio.photovideo.url.data.remote.IdentityManager
 import com.praveen.studio.photovideo.url.data.remote.PublicAccess
@@ -99,13 +100,17 @@ class UploadRepository(
                 send(UploadStatus.Failed(item.name, "The free trial is for photos only. Set up your own Supabase to upload other files.", retryable = false))
                 return@channelFlow
             }
+            if (!AppControlStore.current.demoEnabled) {
+                send(UploadStatus.Failed(item.name, "The free demo is switched off right now. Set up your own Supabase in Settings to upload.", retryable = false))
+                return@channelFlow
+            }
             val details = firebaseDbManager.fetchUserDetailsOrNull(installationId)
             if (details == null) {
                 send(UploadStatus.Failed(item.name, "Could not check your free trial. Check your internet connection and try again."))
                 return@channelFlow
             }
             if (!details.hasFreeUploadsLeft) {
-                send(UploadStatus.Failed(item.name, "Your 3 free photos are used. Set up your own Supabase to keep uploading.", retryable = false))
+                send(UploadStatus.Failed(item.name, "Your ${details.freeTierMax} free photos are used. Set up your own Supabase to keep uploading.", retryable = false))
                 return@channelFlow
             }
             // Free photos are also limited per network, so a phone cannot get new demo photos by resetting itself

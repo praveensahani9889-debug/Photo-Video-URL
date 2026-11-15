@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
@@ -102,6 +103,7 @@ fun LinkSearchScreen(
     val state by viewModel.state.collectAsState()
     val recents by viewModel.recentSearches.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
+    var showScanner by rememberSaveable { mutableStateOf(false) }
 
     // Android 9 needs the storage permission to save into the Downloads folder
     var pendingDownload by remember { mutableStateOf<FoundItem?>(null) }
@@ -128,6 +130,18 @@ fun LinkSearchScreen(
     fun runSearch(text: String) {
         focusManager.clearFocus()
         viewModel.search(text)
+    }
+
+    // QR scanner: the text of the scanned code is searched at once
+    if (showScanner) {
+        QrScannerDialog(
+            onResult = { scanned ->
+                showScanner = false
+                query = scanned.trim()
+                runSearch(query)
+            },
+            onDismiss = { showScanner = false }
+        )
     }
 
     Scaffold(
@@ -164,6 +178,7 @@ fun LinkSearchScreen(
                     viewModel.clearResult()
                 },
                 onPaste = { clipboard.getText()?.text?.let { query = it.trim() } },
+                onScan = { showScanner = true },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
@@ -241,6 +256,7 @@ private fun SearchBox(
     onSearch: () -> Unit,
     onClear: () -> Unit,
     onPaste: () -> Unit,
+    onScan: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
@@ -251,13 +267,22 @@ private fun SearchBox(
             placeholder = { Text("Paste a link here") },
             leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = onClear) {
-                        Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // QR scanner (asks for the camera permission)
+                    IconButton(
+                        onClick = onScan,
+                        modifier = Modifier.testTag("search_scan_qr")
+                    ) {
+                        Icon(imageVector = Icons.Default.QrCodeScanner, contentDescription = "Scan QR code")
                     }
-                } else {
-                    IconButton(onClick = onPaste) {
-                        Icon(imageVector = Icons.Default.ContentPaste, contentDescription = "Paste")
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = onClear) {
+                            Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
+                        }
+                    } else {
+                        IconButton(onClick = onPaste) {
+                            Icon(imageVector = Icons.Default.ContentPaste, contentDescription = "Paste")
+                        }
                     }
                 }
             },
