@@ -251,7 +251,47 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
-## 📺 Ads (version 2.5.0)
+## 🛰️ Remote control, messages and scanner (version 2.5.x)
+**Remote switches in Firebase** (Realtime Database > `app` > `backend`). Add these keys next to the free-trial Supabase
+keys that are already there. A missing key means "normal". `true` / `false` can be typed as boolean or text.
+
+| Key | Example | What it does |
+| --- | --- | --- |
+| `demoEnabled` | `true` | `false` = the free demo is off (banner hidden, demo uploads refused) |
+| `demoImageLimit` | `3` | how many free demo photos each phone gets |
+| `maintenance` | `false` | `true` = the app does not open, it shows "App is under maintenance" (+ Try again) |
+| `maintenanceMessage` | `Back at 6 PM` | optional text for the maintenance screen |
+| `newUpdate` | `false` | `true` = the app compares `latestVersion` with its own version |
+| `latestVersion` | `2.5.2` | if it is HIGHER than the installed version, "New update available" is shown |
+| `updateLink` | `https://...apk` | opened by the **Update** button |
+| `forceUpdate` | `false` | `true` = the update dialog cannot be dismissed |
+| `updateMessage` | `Bug fixes` | optional text for the update dialog |
+
+If `latestVersion` equals (or is lower than) the installed version, the app runs normally. The values are read when the
+app opens (and "Try again" on the maintenance screen).
+
+**Messages (Firebase Cloud Messaging):** every phone listens to the topic **`all`**. Android 13+ asks once for the
+notification permission. Two ways to publish:
+1. *Firebase console* > Engage > Messaging > New campaign > Notification > Target: *Topic* = `all`. Under
+   **Additional options** set **Priority = High** (a normal priority message can be held back for a long time while the
+   phone sleeps) and, if you want, a **notification image**. The system shows these messages itself, also when the app
+   is closed: status bar icon = the app logo (white), accent colour = brand blue.
+2. `tools/send_fcm.py` (a "data" message): the app builds the notification itself with the **coloured app logo**, the
+   brand colour, an optional picture and a link, in a high-importance channel (pops up with sound), also when the app
+   is closed. See the top of the script for the one-time setup.
+
+If messages only arrive when the app is opened, the phone is holding the app back: Settings > **Notifications** has the
+shortcuts (notification settings, battery "Don't optimize") and a hint for Autostart on Xiaomi / Oppo / Vivo / Realme /
+Samsung phones. A force-stopped app receives nothing until it is opened once.
+
+**QR scanner:** Search screen > the QR icon next to Paste. It asks for the camera permission (CameraX + ML Kit, both from
+Google), shows a scan frame with a light button, and searches the scanned link at once. The camera picture is never saved
+or uploaded.
+
+**Downloads from the viewer:** Download (APK, files, PDF) saves the file straight into `Downloads` with a notification,
+it no longer opens the browser / Supabase page.
+
+## 📺 Ads (version 2.4.x)
 **Automatic ad after a link was created:** when an upload is done, an ad (Unity *Interstitial* placement
 `BP_Interstitial_Android`) shows by itself BEFORE the result page (link, Copy, Share, QR). Copy / Share / QR are not
 touched. If no ad can be shown (no internet, no fill, SDK error) the result page appears at once; the user never waits
@@ -324,9 +364,8 @@ A crash opens the **"Photo Video URL stopped unexpectedly"** screen with the exa
 Tap **Copy report** and send it to the developer. (This screen runs in its own process, so it also works
 when the normal app cannot start.)
 
-## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v2.5.0.apk` – normal build, the safest one.
-* `PhotoVideoURL-v2.5.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+## 📦 APK file (GitHub Releases)
+* `PhotoVideoURL-v2.5.1.apk` – the only APK that is published.
 
 ---
 
