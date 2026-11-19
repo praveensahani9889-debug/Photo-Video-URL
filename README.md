@@ -251,27 +251,68 @@ A line that says *BLOCKED by Firebase rules* means the rules above are not publi
 
 ---
 
-## 🆕 Version 2.6.0 — speed, several Supabase projects, new Settings
+## 🛰️ Remote control, messages and scanner (version 2.5.x)
+**Remote switches in Firebase** (Realtime Database > `app` > `backend`). Add these keys next to the free-trial Supabase
+keys that are already there. A missing key means "normal". `true` / `false` can be typed as boolean or text.
+
+| Key | Example | What it does |
+| --- | --- | --- |
+| `demoEnabled` | `true` | `false` = the free demo is off (banner hidden, demo uploads refused) |
+| `demoImageLimit` | `3` | how many free demo photos each phone gets |
+| `ipLimitEnabled` | `true` | `false` = the free-demo limit per network (same public IP) is NOT checked at all |
+| `ipFreeLimit` | `30` | how many free demo photos one network gets (used when `ipLimitEnabled` is on) |
+| `maxSupabaseAccounts` | `5` | how many Supabase projects one user can add in Settings (1–10) |
+| `maintenance` | `false` | `true` = the app does not open, it shows "App is under maintenance" (+ Try again) |
+| `maintenanceMessage` | `Back at 6 PM` | optional text for the maintenance screen |
+| `newUpdate` | `false` | `true` = the app compares `latestVersion` with its own version |
+| `latestVersion` | `2.5.2` | if it is HIGHER than the installed version, "New update available" is shown |
+| `updateLink` | `https://...apk` | opened by the **Update** button |
+| `forceUpdate` | `false` | `true` = the update dialog cannot be dismissed |
+| `updateMessage` | `Bug fixes` | optional text for the update dialog |
+
+If `latestVersion` equals (or is lower than) the installed version, the app runs normally. The values are read when the
+app opens (and "Try again" on the maintenance screen).
+
+**Messages (Firebase Cloud Messaging):** every phone listens to the topic **`all`**. Android 13+ asks once for the
+notification permission. Two ways to publish:
+1. *Firebase console* > Engage > Messaging > New campaign > Notification > Target: *Topic* = `all`. Under
+   **Additional options** set **Priority = High** (a normal priority message can be held back for a long time while the
+   phone sleeps) and, if you want, a **notification image**. The system shows these messages itself, also when the app
+   is closed: status bar icon = the app logo (white), accent colour = brand blue.
+2. `tools/send_fcm.py` (a "data" message): the app builds the notification itself with the **coloured app logo**, the
+   brand colour, an optional picture and a link, in a high-importance channel (pops up with sound), also when the app
+   is closed. See the top of the script for the one-time setup.
+
+If messages only arrive when the app is opened, the phone is holding the app back: Settings > **Notifications** has the
+shortcuts (notification settings, battery "Don't optimize") and a hint for Autostart on Xiaomi / Oppo / Vivo / Realme /
+Samsung phones. A force-stopped app receives nothing until it is opened once.
+
+**QR scanner:** Search screen > the QR icon next to Paste. It asks for the camera permission (CameraX + ML Kit, both from
+Google), shows a scan frame with a light button, and searches the scanned link at once. The camera picture is never saved
+or uploaded.
+
+**Downloads from the viewer:** Download (APK, files, PDF) saves the file straight into `Downloads` with a notification,
+it no longer opens the browser / Supabase page.
+
+## 🆕 Version 2.7.0 — speed, several Supabase projects, new Settings
+
+### Version numbers (how the next versions are counted)
+`X.Y.Z`: **X** = big upload (2 → 3), **Y** = new features (7 → 8), **Z** = bug fix (0 → 1).
+`versionCode` = `X*100 + Y*10 + Z` (2.7.0 = 270). Change both in `app/build.gradle.kts`, the version in the
+workflow file (`android-ci.yml`) and the `version` default in `FirebaseDatabaseManager.kt`.
 
 ### Firebase switches (app/backend, no app update needed)
-Create / edit these keys in Firebase Console > Realtime Database > `app/backend` (the app reads them once at start):
-
-| Key | Type | Default | Meaning |
-|---|---|---|---|
-| `demoEnabled` | true / false | true | free demo photos on / off |
-| `demoImageLimit` | number | 3 | free demo photos per phone |
-| `ipLimitEnabled` | true / false | true | **network (same IP) limit on / off** |
-| `ipFreeLimit` | number | 30 | free demo photos per network |
-| `maxSupabaseAccounts` | number | 5 | how many Supabase projects one user can add (1–10) |
-| `maintenance`, `newUpdate`, ... | | | unchanged |
-
-When `ipLimitEnabled` is false the network limit is not checked at all (and the public IP lookup is skipped).
+New keys next to the ones in the table above: **`ipLimitEnabled`** (network limit on / off), **`ipFreeLimit`** (how many
+free photos per network) and **`maxSupabaseAccounts`** (how many Supabase projects a user can add). A missing key means
+"normal" (on / 30 / 5). When `ipLimitEnabled` is `false` the network limit is not checked at all (and the public IP
+lookup is skipped).
 
 ### Several Supabase projects (up to 5) with automatic switching
 * Settings > Supabase Storage > **Set up Supabase** opens ONE full setup screen: project URL, anon key, bucket, plan size,
   a copy-paste SQL script (creates the public bucket + upload / read / delete permissions) and a **full check**.
+  Every "set up Supabase" button of the app (Home banner, upload dialogs, share dialog) opens this same screen.
 * After setup, Settings shows **Supabase Connected**. Tap a project for **Edit / Delete / Analyze / Use for uploads**.
-* Uploads go to the *active* project. When it is full (Supabase answers “storage full”, or the estimate reaches ~98 %)
+* Uploads go to the *active* project. When it is full (Supabase answers "storage full", or the estimate reaches ~98 %)
   the app marks it full, switches to the next project that has room, shows a **notification + message**, and finishes the
   upload there by itself.
 * **Analyze** page: used / free storage per project (bar + %), files per type, last scan, and a setup check
@@ -298,7 +339,7 @@ When `ipLimitEnabled` is false the network limit is not checked at all (and the 
 Settings > About & Legal opens `https://ivu.gt.tc/about`, `/contact`, `/terms` and `/privacy` in the browser.
 **These pages must exist on the website.**
 
-## 📺 Ads (version 2.5.0)
+## 📺 Ads (version 2.4.x)
 **Automatic ad after a link was created:** when an upload is done, an ad (Unity *Interstitial* placement
 `BP_Interstitial_Android`) shows by itself BEFORE the result page (link, Copy, Share, QR). Copy / Share / QR are not
 touched. If no ad can be shown (no internet, no fill, SDK error) the result page appears at once; the user never waits
@@ -347,7 +388,7 @@ Bottom bar > **Search** opens its own screen: paste a link, it is shown, and **D
 * The user's **Supabase settings are backed up in Firebase, encrypted** with a key that only the phone has, and are
   restored automatically after a re-install (no new set-up). **Disconnect** in Settings removes the backup.
 * The public **IP is not used to choose a profile** (people on the same Wi-Fi or mobile network would see each
-  other's History). It only limits the free demo photos per network (default 30). The developer can switch this limit on / off and change the number in Firebase `app/backend` (`ipLimitEnabled`, `ipFreeLimit`), see *Version 2.6.0*.
+  other's History). It only limits the free demo photos per network (default 30). The developer can switch this limit on / off and change the number in Firebase `app/backend` (`ipLimitEnabled`, `ipFreeLimit`), see *Version 2.7.0*.
   Only salted hashes are stored, never the IP or the Android ID.
 * The Android ID stays the same for the same APK signing key until the phone is factory reset. A build signed with
   another key counts as a new phone.
@@ -371,9 +412,8 @@ A crash opens the **"Photo Video URL stopped unexpectedly"** screen with the exa
 Tap **Copy report** and send it to the developer. (This screen runs in its own process, so it also works
 when the normal app cannot start.)
 
-## 📦 APK files (GitHub Releases)
-* `PhotoVideoURL-v2.6.0.apk` – normal build, the safest one.
-* `PhotoVideoURL-v2.6.0-small.apk` – optimised build (unused code removed, much smaller). Use it if it runs fine on your phone.
+## 📦 APK file (GitHub Releases)
+* `PhotoVideoURL-v2.7.0.apk` – the only APK that is published.
 
 ---
 
