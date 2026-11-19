@@ -41,6 +41,7 @@ import com.praveen.studio.photovideo.url.ui.components.InstalledAppsDialog
 import com.praveen.studio.photovideo.url.ui.components.LargeFileDialog
 import com.praveen.studio.photovideo.url.ui.components.SetupRequiredBanner
 import com.praveen.studio.photovideo.url.ui.components.SetupSupabaseDialog
+import com.praveen.studio.photovideo.url.ui.screens.settings.SetupRequest
 import com.praveen.studio.photovideo.url.ui.components.SharedUploadDialog
 import com.praveen.studio.photovideo.url.ui.components.StoragePickerDialog
 import com.praveen.studio.photovideo.url.ads.AdsActivity
@@ -71,6 +72,12 @@ fun HomeScreen(
     // In-app picker (direct storage permission). pickerTrial = the single free-trial photo.
     var pickerCategory by remember { mutableStateOf<MediaCategory?>(null) }
     var pickerTrial by remember { mutableStateOf(false) }
+
+    // Every "set up Supabase" button opens Settings AND the full setup dialog there
+    val openSetup: () -> Unit = {
+        SetupRequest.request()
+        onNavigateToSettings()
+    }
 
     LaunchedEffect(Unit) {
         viewModel.refreshConfigStatus()
@@ -235,7 +242,7 @@ fun HomeScreen(
                             pickerTrial = true
                             pickerCategory = MediaCategory.IMAGES
                         },
-                        onConfigureSettings = onNavigateToSettings
+                        onConfigureSettings = openSetup
                     )
                 }
             }
@@ -405,7 +412,7 @@ fun HomeScreen(
             category = category,
             onSetup = {
                 setupPromptFor = null
-                onNavigateToSettings()
+                openSetup()
             },
             onDismiss = { setupPromptFor = null }
         )
@@ -440,7 +447,7 @@ fun HomeScreen(
         status = shownStatus,
         onDismiss = { viewModel.dismissProgress() },
         onRetry = { viewModel.retryLastUpload() },
-        onNavigateToSettings = onNavigateToSettings
+        onNavigateToSettings = openSetup
     )
 
     // File bigger than the Supabase limit: ZIP it here, upload as is, or cancel.
@@ -470,7 +477,7 @@ fun HomeScreen(
             onStartFreeTrial = { uri ->
                 viewModel.handleFreeTrialGalleryPhoto(uri)
             },
-            onConfigureSettings = onNavigateToSettings,
+            onConfigureSettings = openSetup,
             onDismiss = {
                 IncomingIntentManager.clearSharedMedia()
             }

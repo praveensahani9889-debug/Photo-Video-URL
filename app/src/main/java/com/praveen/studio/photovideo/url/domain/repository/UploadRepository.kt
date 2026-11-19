@@ -4,25 +4,26 @@ import android.content.Context
 import android.util.Log
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
-import com.praveen.studio.photovideo.url.data.local.SecureStorageManager
+import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.SelectedMediaItem
+import com.praveen.studio.photovideo.url.data.model.SupabaseAccount
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.data.model.AppControlStore
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
+import com.praveen.studio.photovideo.url.data.remote.HistoryRemoteStore
 import com.praveen.studio.photovideo.url.data.remote.IdentityManager
 import com.praveen.studio.photovideo.url.data.remote.PublicAccess
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
-import kotlinx.coroutines.CoroutineScope
+import com.praveen.studio.photovideo.url.data.remote.UserDetailsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.launch
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,7 +32,6 @@ import java.util.UUID
 
 class UploadRepository(
     private val context: Context,
-    private val secureStorageManager: SecureStorageManager = SecureStorageManager(context),
     private val preferencesManager: PreferencesManager = PreferencesManager(context),
     private val installationIdProvider: InstallationIdProvider = InstallationIdProvider(context),
     private val supabaseClient: SupabaseStorageClient = SupabaseStorageClient(),
@@ -47,20 +47,17 @@ class UploadRepository(
     val deviceFingerprint: String get() = installationId
 
     init {
-        // Ensure default Firebase 'app/backend' and 'app/about' structure exists
-        CoroutineScope(Dispatchers.IO).launch {
-            firebaseDbManager.initializeAppMetadataIfNeeded()
-        }
+        // Counters / free-trial numbers saved on the phone show at once; Firebase is only asked when they are stale.
+        // (The default app/backend + app/about nodes are checked together with the app switches at app start.)
+        UserDetailsStore.load(context, installationId)
+        SupabaseAccountManager.load(context)
     }
 
     /**
-     * The user's OWN Supabase (saved in Settings). Used for every normal upload
-     * (photos, videos, documents, files, APKs). Returns null until the user finishes setup.
+     * The user's OWN Supabase (saved in Settings; the active one when there are several). Used for every normal
+     * upload (photos, videos, documents, files, APKs). Returns null until the user finishes setup.
      */
-    fun getUserSupabaseConfig(): SupabaseConfig? {
-        val local = secureStorageManager.getConfig()
-        return if (local.isConfigured && !local.isPlaceholder) local else null
-    }
+    fun getUserSupabaseConfig(): SupabaseConfig? = SupabaseAccountManager.activeConfig(context)
 
     /**
      * The developer's Supabase stored manually in Firebase `app/backend`.
@@ -74,12 +71,17 @@ class UploadRepository(
     /** True only when the user has set up their own Supabase. */
     fun isSupabaseConfigured(): Boolean = getUserSupabaseConfig() != null
 
+    /** Counters and free-trial numbers. Firebase is asked only when the saved copy is stale. */
     suspend fun getUserDetails(): UserDetails {
-        return firebaseDbManager.fetchUserDetails(installationId)
+        refreshUserDetails()
+        return UserDetailsStore.state.value
     }
 
-    fun observeUserDetails(): Flow<UserDetails> {
-        return firebaseDbManager.observeUserDetails(installationId)
+    /** The saved copy, updated after every upload (no live listener on Firebase any more). */
+    fun observeUserDetails(): Flow<UserDetails> = UserDetailsStore.state
+
+    suspend fun refreshUserDetails(force: Boolean = false) {
+        UserDetailsStore.refresh(context, installationId, firebaseDbManager, force)
     }
 
     fun uploadItem(item: SelectedMediaItem, itemIndex: Int = 1, totalItems: Int = 1): Flow<UploadStatus> = channelFlow {
@@ -95,7 +97,8 @@ class UploadRepository(
         // 0. Pick the right Supabase:
         //    - free trial photo  -> developer's Supabase (Firebase app/backend), max 3 per installation
         //    - everything else   -> the user's own Supabase from Settings
-        val activeConfig: SupabaseConfig = if (item.isTrial) {
+        var activeAccount: SupabaseAccount? = null
+        var activeConfig: SupabaseConfig = if (item.isTrial) {
             if (item.category != MediaCategory.IMAGES) {
                 send(UploadStatus.Failed(item.name, "The free trial is for photos only. Set up your own Supabase to upload other files.", retryable = false))
                 return@channelFlow
@@ -114,9 +117,11 @@ class UploadRepository(
                 return@channelFlow
             }
             // Free photos are also limited per network, so a phone cannot get new demo photos by resetting itself
-            val ipKey = IdentityManager.getIpKey()
+            // (the developer can switch this limit off, or change it, in Firebase app/backend: ipLimitEnabled / ipFreeLimit)
+            val ipLimit = AppControlStore.current.effectiveIpLimit
+            val ipKey = if (ipLimit != null) IdentityManager.getIpKey() else null
             val ipUsed = if (ipKey != null) firebaseDbManager.fetchIpFreeUsed(ipKey) else null
-            if (ipUsed != null && ipUsed >= IdentityManager.IP_FREE_MAX) {
+            if (ipLimit != null && ipUsed != null && ipUsed >= ipLimit) {
                 send(UploadStatus.Failed(item.name, "The free trial of this network is used up. Set up your own Supabase to keep uploading.", retryable = false))
                 return@channelFlow
             }
@@ -127,14 +132,20 @@ class UploadRepository(
             }
             trialConfig
         } else {
-            val userConfig = getUserSupabaseConfig()
-            if (userConfig == null) {
-                val errorMsg = "Supabase is not set up. Open Settings and add your Supabase project URL and anon key."
+            // the active project; when it is full the next project with room is taken (and the user is told)
+            val picked = SupabaseAccountManager.pickForUpload(context, item.sizeBytes)
+            if (picked == null) {
+                val errorMsg = if (SupabaseAccountManager.hasUsableAccount(context)) {
+                    "All your Supabase storages are full. Add another Supabase in Settings or delete some uploads."
+                } else {
+                    "Supabase is not set up. Open Settings and add your Supabase project URL and anon key."
+                }
                 Log.w(TAG, errorMsg)
                 send(UploadStatus.Failed(item.name, errorMsg, retryable = false))
                 return@channelFlow
             }
-            userConfig
+            activeAccount = picked
+            picked.config
         }
 
         // 1. Generate unique short ID with collision check
@@ -163,8 +174,8 @@ class UploadRepository(
         probe.close()
 
         // 3. Real network upload to Supabase Storage with live byte progress
-        val uploadResult = supabaseClient.uploadFile(
-            config = activeConfig,
+        suspend fun uploadTo(config: SupabaseConfig) = supabaseClient.uploadFile(
+            config = config,
             openStream = openStream,
             cleanFileName = cleanName,
             folderPath = folderPath,
@@ -186,6 +197,34 @@ class UploadRepository(
                     totalItems = totalItems
                 )
             )
+        }
+
+        var uploadResult = uploadTo(activeConfig)
+
+        // Supabase says "storage full": mark that project, switch to the next one that has room (a notification is
+        // shown) and upload the same file there - the user does not have to do anything.
+        var switches = 0
+        val maxSwitches = SupabaseAccountManager.list(context).size
+        while (uploadResult.isFailure && !item.isTrial && switches < maxSwitches) {
+            val message = uploadResult.exceptionOrNull()?.message.orEmpty()
+            if (!message.startsWith(SupabaseStorageClient.STORAGE_FULL_PREFIX)) break
+            val current = activeAccount ?: break
+            val next = SupabaseAccountManager.markFullAndPickNext(context, current.id, item.sizeBytes)
+            if (next == null) {
+                send(
+                    UploadStatus.Failed(
+                        item.name,
+                        "All your Supabase storages are full. Add another Supabase in Settings or delete some uploads.",
+                        retryable = false
+                    )
+                )
+                return@channelFlow
+            }
+            activeAccount = next
+            activeConfig = next.config
+            switches++
+            send(UploadStatus.Preparing(item.name))
+            uploadResult = uploadTo(activeConfig)
         }
 
         if (!uploadResult.isSuccess) {
@@ -284,7 +323,7 @@ class UploadRepository(
         }
 
         // Count the free photo for this network too (best effort)
-        if (item.isTrial) {
+        if (item.isTrial && AppControlStore.current.ipLimitEnabled) {
             try {
                 IdentityManager.getIpKey()?.let { firebaseDbManager.incrementIpFreeUsed(it) }
             } catch (e: java.util.concurrent.CancellationException) {
@@ -295,6 +334,10 @@ class UploadRepository(
 
         // 5. Save to local cache for instant offline & restart availability
         preferencesManager.addUploadRecord(record)
+        // History and counters are updated here, so no screen has to ask Firebase again
+        HistoryRemoteStore.upsert(record)
+        UserDetailsStore.onUploadSucceeded(context, installationId, item.category, item.isTrial)
+        activeAccount?.let { SupabaseAccountManager.recordUpload(context, it.id, item.sizeBytes) }
         send(UploadStatus.Success(record, totalItems))
     }.flowOn(Dispatchers.IO)
 

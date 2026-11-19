@@ -29,8 +29,15 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
         private const val FB_BUCKET = "photo-video-url.firebasestorage.app"
         const val FB_DATABASE_URL = "https://photo-video-url-default-rtdb.firebaseio.com"
 
-        /** Thumbnails of History are full size files on the server, so the disk cache must stay small. */
-        private const val IMAGE_DISK_CACHE_BYTES = 32L * 1024L * 1024L
+        /**
+         * Thumbnails of History are full size files on the server (Coil keeps the downloaded file on disk), so the
+         * disk cache must stay small (Coil trims an older, bigger cache to this size on its next write).
+         */
+        private const val IMAGE_DISK_CACHE_BYTES = 16L * 1024L * 1024L
+        private const val IMAGE_MEMORY_PERCENT = 0.10
+
+        private const val FLAGS = "app_flags"
+        private const val FLAG_TOPIC_SUBSCRIBED = "topic_all_subscribed"
     }
 
     override fun onCreate() {
@@ -56,10 +63,15 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
 
         initFirebase()
 
-        // Messages from Firebase (Cloud Messaging): notification channel + topic "all"
+        // Messages from Firebase (Cloud Messaging): notification channel + topic "all".
+        // The topic is subscribed ONCE (it stays subscribed), not with a network request at every app start.
         try {
             AppNotifications.createChannel(this)
-            FirebaseMessaging.getInstance().subscribeToTopic(AppNotifications.TOPIC_ALL)
+            val flags = getSharedPreferences(FLAGS, MODE_PRIVATE)
+            if (!flags.getBoolean(FLAG_TOPIC_SUBSCRIBED, false)) {
+                FirebaseMessaging.getInstance().subscribeToTopic(AppNotifications.TOPIC_ALL)
+                    .addOnSuccessListener { flags.edit().putBoolean(FLAG_TOPIC_SUBSCRIBED, true).apply() }
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "Messaging start notice: ${t.message}")
         }
@@ -142,7 +154,7 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
             ImageLoader.Builder(this)
                 .memoryCache {
                     MemoryCache.Builder(this)
-                        .maxSizePercent(0.15)
+                        .maxSizePercent(IMAGE_MEMORY_PERCENT)
                         .build()
                 }
                 .diskCache {

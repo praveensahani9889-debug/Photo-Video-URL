@@ -9,6 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,15 +32,17 @@ class PreferencesManager(private val context: Context) {
         prefs[KEY_FIRST_LAUNCH] ?: true
     }
 
-    val localHistoryFlow: Flow<List<UploadRecord>> = context.dataStore.data.map { prefs ->
-        val json = prefs[KEY_LOCAL_UPLOADS] ?: "[]"
-        deserializeList(json)
-    }
+    // The stored text is compared first: any other setting that changes (theme, searches...) must not make the
+    // whole saved history be parsed again.
+    val localHistoryFlow: Flow<List<UploadRecord>> = context.dataStore.data
+        .map { prefs -> prefs[KEY_LOCAL_UPLOADS] ?: "[]" }
+        .distinctUntilChanged()
+        .map { json -> deserializeList(json) }
 
     /** History entries the user cleared on this device (their links keep working, they are just hidden). */
-    val hiddenHistoryIdsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
-        prefs[KEY_HIDDEN_IDS] ?: emptySet()
-    }
+    val hiddenHistoryIdsFlow: Flow<Set<String>> = context.dataStore.data
+        .map { prefs -> prefs[KEY_HIDDEN_IDS] ?: emptySet() }
+        .distinctUntilChanged()
 
     /** Links the user searched for in "Search & Download". Kept on this phone only (never sent to Firebase). */
     val recentSearchesFlow: Flow<List<String>> = context.dataStore.data.map { prefs ->

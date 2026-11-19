@@ -450,7 +450,7 @@ private fun ZoomableImage(content: ViewerContent.Image, modifier: Modifier = Mod
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(content.url)
-                .size(2400, 2400)
+                .size(1920, 1920)
                 .crossfade(true)
                 .build(),
             contentDescription = content.name,

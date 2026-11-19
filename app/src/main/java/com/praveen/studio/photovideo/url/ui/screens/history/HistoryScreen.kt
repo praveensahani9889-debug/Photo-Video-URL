@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -57,6 +58,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 
@@ -73,8 +75,12 @@ fun HistoryScreen(
     val selectionMode by viewModel.selectionMode.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
     val deleteState by viewModel.deleteState.collectAsState()
+    val refreshing by viewModel.refreshing.collectAsState()
     var showConfirm by remember { mutableStateOf(false) }
     val allSelected = items.isNotEmpty() && items.all { it.shortId in selectedIds }
+
+    // The history is read from Firebase when this screen opens (only if the copy is a few minutes old)
+    LaunchedEffect(Unit) { viewModel.refresh(false) }
 
     // Back leaves the delete mode first instead of leaving the History screen
     BackHandler(enabled = selectionMode) { viewModel.cancelSelection() }
@@ -127,7 +133,23 @@ fun HistoryScreen(
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    } else if (items.isNotEmpty()) {
+                    } else {
+                        IconButton(
+                            onClick = { viewModel.refresh(true) },
+                            enabled = !refreshing,
+                            modifier = Modifier.testTag("btn_refresh_history")
+                        ) {
+                            if (refreshing) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh history"
+                                )
+                            }
+                        }
+                    }
+                    if (!selectionMode && items.isNotEmpty()) {
                         IconButton(
                             onClick = { viewModel.startSelection() },
                             modifier = Modifier.testTag("btn_clear_history")

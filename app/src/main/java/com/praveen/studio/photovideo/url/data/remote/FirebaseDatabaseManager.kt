@@ -2,11 +2,9 @@ package com.praveen.studio.photovideo.url.data.remote
 
 import android.util.Log
 import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
-import com.google.firebase.database.ValueEventListener
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.PublicLinkDetails
 import com.praveen.studio.photovideo.url.data.model.PublicLinkLookup
@@ -17,15 +15,12 @@ import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.security.SecureRandom
 import kotlin.coroutines.cancellation.CancellationException
@@ -52,6 +47,7 @@ class FirebaseDatabaseManager {
         private const val COUNTER_TIMEOUT_MS = 8_000L
         private const val LOOKUP_TIMEOUT_MS = 10_000L
         private const val DELETE_TIMEOUT_MS = 12_000L
+        private const val HISTORY_TIMEOUT_MS = 25_000L
         private val HISTORY_FOLDERS = listOf("images", "videos", "documents", "files", "apks")
 
         /** The app/ defaults only need to be checked once per app process, not on every screen. */
@@ -136,58 +132,73 @@ class FirebaseDatabaseManager {
     }
 
     /**
-     * Initializes default `app/` structure in Firebase if missing.
-     * Developer can manually populate `app/backend/supabaseApi` & `supabaseKey` in Firebase console.
+     * Creates the default `app/backend` and `app/about` nodes when they are missing (only works when the database
+     * rules allow it; with the recommended read-only rules the developer creates them in the console).
+     * Runs at most once per app process and never delays the caller.
      */
-    suspend fun initializeAppMetadataIfNeeded() {
+    private fun ensureAppDefaults(root: DatabaseReference, hasBackend: Boolean, hasAbout: Boolean) {
         if (metadataChecked) return
-        val root = appRef() ?: return
-        try {
-            val backendSnap = root.child("backend").get().await()
-            if (!backendSnap.exists()) {
-                root.child("backend").setValue(
-                    mapOf(
-                        "supabaseApi" to "",
-                        "supabaseKey" to "",
-                        "bucket" to "media"
-                    )
-                ).await()
+        metadataChecked = true
+        if (hasBackend && hasAbout) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (!hasBackend) {
+                    root.child("backend").setValue(
+                        mapOf(
+                            "supabaseApi" to "",
+                            "supabaseKey" to "",
+                            "bucket" to "media",
+                            "demoEnabled" to true,
+                            "demoImageLimit" to 3,
+                            "ipLimitEnabled" to true,
+                            "ipFreeLimit" to 30,
+                            "maxSupabaseAccounts" to 5
+                        )
+                    ).await()
+                }
+                if (!hasAbout) {
+                    root.child("about").setValue(
+                        mapOf(
+                            "appName" to "Photo Video URL",
+                            "contact" to "https://ivu.gt.tc/contact",
+                            "supportUrl" to "https://ivu.gt.tc/contact",
+                            "termsUrl" to "https://ivu.gt.tc/terms",
+                            "privacyUrl" to "https://ivu.gt.tc/privacy",
+                            "domain" to "https://ivu.gt.tc",
+                            "version" to "2.6.0"
+                        )
+                    ).await()
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "ensureAppDefaults notice: ${t.message}")
             }
-
-            val aboutSnap = root.child("about").get().await()
-            if (!aboutSnap.exists()) {
-                root.child("about").setValue(
-                    mapOf(
-                        "appName" to "Photo Video URL",
-                        "contact" to "https://ivu.gt.tc/contact",
-                        "supportUrl" to "https://ivu.gt.tc/contact",
-                        "domain" to "https://ivu.gt.tc",
-                        "version" to "2.5.1"
-                    )
-                ).await()
-            }
-            metadataChecked = true
-        } catch (t: Throwable) {
-            Log.w(TAG, "initializeAppMetadata notice: ${t.message}")
         }
     }
 
     /**
-     * Reads the remote switches from `app/backend` (demo on/off + limit, maintenance, new update).
+     * Reads the remote switches from `app/backend` (demo on/off + limit, network limit on/off + limit, max Supabase
+     * projects, maintenance, new update). ONE request for the whole `app` node.
      * Returns null when they cannot be read (offline); the caller then keeps the last known values.
      */
     suspend fun fetchAppControl(): AppControl? {
         val root = appRef() ?: return null
         return try {
-            val snap = withTimeout(LOOKUP_TIMEOUT_MS) { root.child("backend").get().await() }
+            val appSnap = withTimeout(LOOKUP_TIMEOUT_MS) { root.get().await() }
+            val snap = appSnap.child("backend")
+            ensureAppDefaults(root, snap.exists(), appSnap.child("about").exists())
             if (!snap.exists()) {
                 AppControl()
             } else {
                 fun text(key: String): String = snap.child(key).getValue(String::class.java)?.trim().orEmpty()
                 val limitNode = snap.child("demoImageLimit")
+                val ipLimitNode = snap.child("ipFreeLimit")
+                val maxAccountsNode = snap.child("maxSupabaseAccounts")
                 AppControl(
                     demoEnabled = readBoolean(snap.child("demoEnabled"), true),
                     demoImageLimit = if (limitNode.exists()) getNumberAsLong(limitNode).coerceAtLeast(0L) else 3L,
+                    ipLimitEnabled = readBoolean(snap.child("ipLimitEnabled"), true),
+                    ipFreeLimit = if (ipLimitNode.exists()) getNumberAsLong(ipLimitNode).coerceAtLeast(0L) else 30L,
+                    maxSupabaseAccounts = if (maxAccountsNode.exists()) getNumberAsLong(maxAccountsNode).toInt() else 5,
                     maintenance = readBoolean(snap.child("maintenance"), false),
                     maintenanceMessage = text("maintenanceMessage"),
                     newUpdate = readBoolean(snap.child("newUpdate"), false),
@@ -387,48 +398,6 @@ class FirebaseDatabaseManager {
             throw e
         } catch (t: Throwable) {
             Log.w(TAG, "Failed removing userDetails fields: ${t.message}")
-        }
-    }
-
-    /**
-     * Observes user details in real-time.
-     */
-    fun observeUserDetails(installationId: String): Flow<UserDetails> = callbackFlow {
-        val ref = userDetailsRef(installationId)
-        if (ref == null) {
-            trySend(UserDetails())
-            awaitClose { }
-            return@callbackFlow
-        }
-
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                try {
-                    val details = parseUserDetailsSafe(snapshot)
-                    trySend(details)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "observeUserDetails onDataChange notice: ${t.message}")
-                    trySend(UserDetails())
-                }
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                Log.w(TAG, "observeUserDetails cancelled: ${error.message}")
-                trySend(UserDetails())
-            }
-        }
-
-        try {
-            ref.addValueEventListener(listener)
-        } catch (t: Throwable) {
-            Log.w(TAG, "addValueEventListener error: ${t.message}")
-            trySend(UserDetails())
-        }
-
-        awaitClose {
-            try {
-                ref.removeEventListener(listener)
-            } catch (_: Throwable) {}
         }
     }
 
@@ -742,48 +711,25 @@ class FirebaseDatabaseManager {
     }
 
     /**
-     * Observes all user uploads across images, videos, documents, files, and apks in real-time.
-     * Firebase delivers snapshots on the main thread; parsing them (hundreds of records) happens on a
-     * background dispatcher so scrolling and typing stay smooth.
+     * Loads the whole upload history of this phone ONCE (user/{installationId}). There is no live listener any
+     * more: a listener downloaded the complete history again after every single change and kept it in memory.
+     * The caller decides when to load (History screen opened, pull to refresh) and keeps the result.
      */
-    fun observeAllUserUploads(installationId: String): Flow<List<UploadRecord>> =
-        observeUserSnapshots(installationId)
-            .conflate()
-            .map { snapshot ->
-                if (snapshot == null) emptyList() else parseUploads(snapshot, installationId)
-            }
-            .flowOn(Dispatchers.Default)
-
-    private fun observeUserSnapshots(installationId: String): Flow<DataSnapshot?> = callbackFlow {
-        val userNodeRef = userRef(installationId)
-        if (userNodeRef == null) {
-            trySend(null)
-            awaitClose { }
-            return@callbackFlow
-        }
-
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                trySend(snapshot)
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                Log.w(TAG, "observeAllUserUploads cancelled: code=${error.code} ${error.message}")
-                trySend(null)
-            }
-        }
-
-        try {
-            userNodeRef.addValueEventListener(listener)
+    suspend fun fetchAllUserUploads(installationId: String): Result<List<UploadRecord>> {
+        val ref = userRef(installationId)
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        return try {
+            val snapshot = withTimeout(HISTORY_TIMEOUT_MS) { ref.get().await() }
+            // parsing hundreds of records stays off the main thread
+            val list = withContext(Dispatchers.Default) { parseUploads(snapshot, installationId) }
+            Result.success(list)
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out while loading the history. Check your internet connection."))
+        } catch (e: CancellationException) {
+            throw e
         } catch (t: Throwable) {
-            Log.w(TAG, "addValueEventListener error: ${t.message}")
-            trySend(null)
-        }
-
-        awaitClose {
-            try {
-                userNodeRef.removeEventListener(listener)
-            } catch (_: Throwable) {}
+            Log.w(TAG, "fetchAllUserUploads notice: ${t.message}")
+            Result.failure(t)
         }
     }
 

@@ -21,8 +21,8 @@ android {
     applicationId = "com.praveen.studio.photovideo.url"
     minSdk = 28
     targetSdk = 36
-    versionCode = 251
-    versionName = "2.5.1"
+    versionCode = 260
+    versionName = "2.6.0"
 
     // Unity Ads. The Organization Core ID and the Stats API key are NOT needed in the app.
     buildConfigField("String", "UNITY_GAME_ID", "\"800434128\"")
@@ -156,7 +156,7 @@ dependencies {
   // implementation(libs.googleid)
   // (not used by the app code, removed from the APK) implementation(libs.firebase.appcheck.recaptcha)
   // (not used by the app code, removed from the APK) implementation(libs.firebase.appcheck.debug)
-  implementation(libs.androidx.work.runtime.ktx)
+  // (WorkManager removed: nothing used it, and it created its own database at every app start)
   implementation(libs.androidx.security.crypto)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

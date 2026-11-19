@@ -13,6 +13,8 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
 import java.io.InputStream
 import java.net.URLEncoder
@@ -23,6 +25,21 @@ import kotlin.coroutines.resumeWithException
 
 /** Result of checking whether a bucket serves its files on public URLs. */
 enum class PublicAccess { PUBLIC, NOT_PUBLIC, UNKNOWN }
+
+/** One line of the Supabase setup check (connection, public bucket, upload / read / delete permission). */
+enum class CheckState { OK, FAIL, UNKNOWN }
+
+data class SetupCheckItem(val title: String, val state: CheckState, val detail: String)
+
+/** Real size of a bucket as listed by Supabase ("Scan storage"). */
+data class BucketUsage(
+    val totalBytes: Long,
+    val fileCount: Int,
+    /** Bytes per top-level folder (images, videos, documents, files, apks, trial, ...). */
+    val bytesByFolder: Map<String, Long>,
+    /** True when the scan stopped at the file limit, so the real size can be bigger. */
+    val truncated: Boolean
+)
 
 /**
  * Suspends until the HTTP call finishes and cancels the call (aborting the transfer) when the coroutine
@@ -59,6 +76,14 @@ class SupabaseStorageClient(
 
         /** Error messages that start with this text mean "file is bigger than the Supabase limit". */
         const val TOO_LARGE_PREFIX = "File too large"
+        /** Error messages that start with this text mean "this Supabase project has no free storage left". */
+        const val STORAGE_FULL_PREFIX = "Storage full"
+        private const val STORAGE_FULL_MESSAGE =
+            "$STORAGE_FULL_PREFIX: this Supabase project has no free space left."
+        private const val CHECK_FOLDER = "_ivu_check"
+        private const val SCAN_PAGE_SIZE = 100
+        private const val MAX_SCAN_FILES = 20_000
+
         const val DELETE_POLICY_HINT =
             "Supabase did not allow deleting the file. In Supabase open SQL Editor and run the " +
                 "delete policy from README.md, then try again."
@@ -299,6 +324,7 @@ class SupabaseStorageClient(
 
                 val errorMsg = when {
                     tooLarge -> TOO_LARGE_MESSAGE
+                    isStorageFull(responseCode, responseBody) -> STORAGE_FULL_MESSAGE
                     responseCode == 400 -> "Bad Request: $responseBody"
                     responseCode == 401 -> "Unauthorized. Invalid Anon Key or missing token."
                     responseCode == 403 -> "Forbidden. Check Storage RLS policies for bucket '${config.bucketName}'."
@@ -312,6 +338,224 @@ class SupabaseStorageClient(
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "File upload request notice: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /** Supabase answers differently for a full project; these are the signs that mean "no space left". */
+    private fun isStorageFull(code: Int, body: String): Boolean {
+        if (code == 402 || code == 507) return true
+        val text = body.lowercase()
+        return text.contains("quota") ||
+            text.contains("insufficient storage") ||
+            text.contains("storage limit") ||
+            text.contains("no space left") ||
+            text.contains("exceeded the storage")
+    }
+
+    /** Sends a request and returns (HTTP code, body). The code is -1 when there was no answer at all. */
+    private suspend fun rawCall(request: Request): Pair<Int, String> {
+        return try {
+            okHttpClient.newCall(request).await().use { response ->
+                response.code to (response.body?.string().orEmpty())
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            -1 to (e.message ?: "no answer")
+        }
+    }
+
+    /**
+     * Full setup check of one Supabase project: connection + key, public bucket, upload permission, read permission
+     * and delete permission. The upload / read / delete checks use one tiny file (_ivu_check/probe_*.txt) that is
+     * deleted again at once.
+     */
+    suspend fun runSetupCheck(config: SupabaseConfig): List<SetupCheckItem> = withContext(Dispatchers.IO) {
+        val items = ArrayList<SetupCheckItem>()
+        if (!config.isConfigured) {
+            items += SetupCheckItem("Project URL and key", CheckState.FAIL, "Enter the Project URL and the anon key first.")
+            return@withContext items
+        }
+        val key = config.anonKey.trim()
+        val bucket = config.bucketName.trim()
+
+        // 1. connection + key
+        val ping = rawCall(
+            Request.Builder()
+                .url("${config.normalizedUrl}/storage/v1/bucket")
+                .header("apikey", key)
+                .header("Authorization", "Bearer $key")
+                .get()
+                .build()
+        )
+        val connectionDetail = when (ping.first) {
+            200 -> null
+            401 -> "Invalid anon key (401). Copy the anon public key again."
+            403 -> "Access forbidden (403). Check the key."
+            404 -> "Storage API not found (404). Check the Project URL."
+            -1 -> "No answer. Check the internet connection and the Project URL."
+            else -> "Supabase returned HTTP ${ping.first}."
+        }
+        if (connectionDetail != null) {
+            items += SetupCheckItem("Connection and key", CheckState.FAIL, connectionDetail)
+            val skipped = "Needs a working connection first."
+            items += SetupCheckItem("Public bucket", CheckState.UNKNOWN, skipped)
+            items += SetupCheckItem("Upload permission (INSERT)", CheckState.UNKNOWN, skipped)
+            items += SetupCheckItem("Read permission (SELECT)", CheckState.UNKNOWN, skipped)
+            items += SetupCheckItem("Delete permission (DELETE)", CheckState.UNKNOWN, skipped)
+            return@withContext items
+        }
+        val keyNote = if (config.isServiceRoleKey) " Warning: this is a service_role key, use the public anon key." else ""
+        items += SetupCheckItem("Connection and key", CheckState.OK, "Connected to ${config.normalizedUrl}.$keyNote")
+
+        // 2. public bucket
+        when (checkPublicAccess("${config.publicUrlEndpoint}/__ivu_probe__")) {
+            PublicAccess.PUBLIC -> items += SetupCheckItem("Public bucket", CheckState.OK, "Bucket '$bucket' serves public links.")
+            PublicAccess.NOT_PUBLIC -> items += SetupCheckItem(
+                "Public bucket", CheckState.FAIL,
+                "Bucket '$bucket' is missing or not public. Create it / turn ON \"Public bucket\" (the SQL below does it)."
+            )
+            PublicAccess.UNKNOWN -> items += SetupCheckItem("Public bucket", CheckState.UNKNOWN, "Could not be checked (network).")
+        }
+
+        // 3. upload permission (tiny probe file)
+        val probeName = "probe_${System.currentTimeMillis()}.txt"
+        val probePath = "$CHECK_FOLDER/$probeName"
+        val upload = rawCall(
+            Request.Builder()
+                .url("${config.uploadEndpoint}/$probePath")
+                .header("apikey", key)
+                .header("Authorization", "Bearer $key")
+                .header("Content-Type", "text/plain")
+                .header("x-upsert", "false")
+                .post("ok".toRequestBody("text/plain".toMediaTypeOrNull()))
+                .build()
+        )
+        val uploaded = upload.first in 200..299
+        if (uploaded) {
+            items += SetupCheckItem("Upload permission (INSERT)", CheckState.OK, "Uploads are allowed.")
+        } else {
+            val reason = when {
+                upload.first == 404 -> "Bucket '$bucket' not found. Create it (the SQL below does it)."
+                isStorageFull(upload.first, upload.second) -> STORAGE_FULL_MESSAGE
+                else -> "Uploads are blocked (HTTP ${upload.first}). Run the INSERT policy from the SQL below."
+            }
+            items += SetupCheckItem("Upload permission (INSERT)", CheckState.FAIL, reason)
+            items += SetupCheckItem("Read permission (SELECT)", CheckState.UNKNOWN, "Needs a working upload first.")
+            items += SetupCheckItem("Delete permission (DELETE)", CheckState.UNKNOWN, "Needs a working upload first.")
+            return@withContext items
+        }
+
+        // 4. read permission: the probe file must show up in the list
+        val listBody = JSONObject()
+            .put("prefix", CHECK_FOLDER)
+            .put("limit", 20)
+            .put("offset", 0)
+            .toString()
+        val listed = rawCall(
+            Request.Builder()
+                .url("${config.normalizedUrl}/storage/v1/object/list/${SupabaseConfig.encodePathSegment(bucket)}")
+                .header("apikey", key)
+                .header("Authorization", "Bearer $key")
+                .post(listBody.toRequestBody("application/json".toMediaTypeOrNull()))
+                .build()
+        )
+        val seen = listed.first in 200..299 && listed.second.contains(probeName)
+        items += if (seen) {
+            SetupCheckItem("Read permission (SELECT)", CheckState.OK, "Files can be listed (needed for Scan storage and delete).")
+        } else {
+            SetupCheckItem("Read permission (SELECT)", CheckState.FAIL, "Files cannot be listed. Run the SELECT policy from the SQL below.")
+        }
+
+        // 5. delete permission (also removes the probe file)
+        val deleted = deleteObject(config, bucket, probePath, "${config.publicUrlEndpoint}/$probePath")
+        items += if (deleted.isSuccess) {
+            SetupCheckItem("Delete permission (DELETE)", CheckState.OK, "Deleting from History also deletes the file here.")
+        } else {
+            SetupCheckItem("Delete permission (DELETE)", CheckState.FAIL, "Deleting is blocked. Run the DELETE policy from the SQL below.")
+        }
+        items
+    }
+
+    /**
+     * Lists the bucket and adds up the size of every file (needs the SELECT permission). Up to [MAX_SCAN_FILES]
+     * files are counted; [onProgress] gets the number of files found so far.
+     */
+    suspend fun scanBucketUsage(
+        config: SupabaseConfig,
+        onProgress: (filesFound: Int) -> Unit
+    ): Result<BucketUsage> = withContext(Dispatchers.IO) {
+        if (!config.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Supabase URL or Anon Key is missing."))
+        }
+        try {
+            val key = config.anonKey.trim()
+            val url = "${config.normalizedUrl}/storage/v1/object/list/${SupabaseConfig.encodePathSegment(config.bucketName.trim())}"
+            var total = 0L
+            var count = 0
+            var truncated = false
+            val byFolder = LinkedHashMap<String, Long>()
+            val pending = ArrayDeque<String>()
+            pending.add("")
+
+            while (pending.isNotEmpty() && !truncated) {
+                val prefix = pending.removeFirst()
+                var offset = 0
+                while (true) {
+                    val body = JSONObject()
+                        .put("prefix", prefix)
+                        .put("limit", SCAN_PAGE_SIZE)
+                        .put("offset", offset)
+                        .put("sortBy", JSONObject().put("column", "name").put("order", "asc"))
+                        .toString()
+                    val (code, text) = rawCall(
+                        Request.Builder()
+                            .url(url)
+                            .header("apikey", key)
+                            .header("Authorization", "Bearer $key")
+                            .post(body.toRequestBody("application/json".toMediaTypeOrNull()))
+                            .build()
+                    )
+                    if (code !in 200..299) {
+                        val reason = when (code) {
+                            -1 -> "No answer from Supabase. Check your internet connection."
+                            400, 401, 403 -> "Supabase did not allow listing files. Run the SELECT policy from the setup SQL."
+                            404 -> "Bucket '${config.bucketName.trim()}' not found."
+                            else -> "Supabase returned HTTP $code."
+                        }
+                        return@withContext Result.failure(IllegalStateException(reason))
+                    }
+                    val array = JSONArray(text)
+                    for (i in 0 until array.length()) {
+                        val obj = array.optJSONObject(i) ?: continue
+                        val name = obj.optString("name")
+                        if (name.isBlank()) continue
+                        if (obj.isNull("id")) {
+                            // a folder
+                            pending.add(if (prefix.isEmpty()) name else "$prefix/$name")
+                        } else {
+                            val size = obj.optJSONObject("metadata")?.optLong("size", 0L) ?: 0L
+                            total += size
+                            count++
+                            val top = if (prefix.isEmpty()) "(root)" else prefix.substringBefore('/')
+                            byFolder[top] = (byFolder[top] ?: 0L) + size
+                        }
+                    }
+                    onProgress(count)
+                    if (array.length() < SCAN_PAGE_SIZE) break
+                    offset += array.length()
+                    if (count >= MAX_SCAN_FILES) {
+                        truncated = true
+                        break
+                    }
+                }
+            }
+            Result.success(BucketUsage(total, count, byFolder, truncated))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Scan notice: ${e.message}")
             Result.failure(e)
         }
     }

@@ -42,4 +42,18 @@ class AppControlTest {
         assertFalse(control.maintenance)
         assertFalse(control.newUpdate)
     }
+
+    @Test
+    fun networkLimitCanBeSwitchedOff() {
+        assertEquals(30L, AppControl().effectiveIpLimit)
+        assertEquals(null, AppControl(ipLimitEnabled = false).effectiveIpLimit)
+        assertEquals(10L, AppControl(ipFreeLimit = 10L).effectiveIpLimit)
+    }
+
+    @Test
+    fun supabaseProjectLimitStaysInRange() {
+        assertEquals(5, AppControl().effectiveMaxAccounts)
+        assertEquals(1, AppControl(maxSupabaseAccounts = 0).effectiveMaxAccounts)
+        assertEquals(10, AppControl(maxSupabaseAccounts = 99).effectiveMaxAccounts)
+    }
 }

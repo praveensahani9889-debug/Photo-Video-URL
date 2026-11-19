@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Remote switches that the developer sets in Firebase under `app/backend` (no app update needed):
  *  - demoEnabled / demoImageLimit : free demo photos on / off and how many
+ *  - ipLimitEnabled / ipFreeLimit : the free demo limit per network (same public IP) on / off and how many
+ *  - maxSupabaseAccounts : how many Supabase projects one user may add (default 5)
  *  - maintenance (+ maintenanceMessage) : the app shows "under maintenance" and does not open
  *  - newUpdate + latestVersion + updateLink (+ forceUpdate, updateMessage) : "new update available" dialog
  * Safe defaults are used when a field is missing or the phone is offline.
@@ -14,6 +16,11 @@ import kotlinx.coroutines.flow.asStateFlow
 data class AppControl(
     val demoEnabled: Boolean = true,
     val demoImageLimit: Long = 3L,
+    /** Free demo photos per network (public IP). Off: the network limit is not checked at all. */
+    val ipLimitEnabled: Boolean = true,
+    val ipFreeLimit: Long = 30L,
+    /** How many Supabase projects one user can save in Settings. */
+    val maxSupabaseAccounts: Int = 5,
     val maintenance: Boolean = false,
     val maintenanceMessage: String = "",
     val newUpdate: Boolean = false,
@@ -24,6 +31,12 @@ data class AppControl(
 ) {
     /** Free demo photos a user may upload (0 when the demo is switched off). */
     val effectiveDemoLimit: Long get() = if (demoEnabled) demoImageLimit.coerceAtLeast(0L) else 0L
+
+    /** Free demo photos allowed per network, or null when the network limit is switched off. */
+    val effectiveIpLimit: Long? get() = if (ipLimitEnabled) ipFreeLimit.coerceAtLeast(0L) else null
+
+    /** Supabase projects one user may save (1..10, whatever is typed in Firebase). */
+    val effectiveMaxAccounts: Int get() = maxSupabaseAccounts.coerceIn(1, 10)
 }
 
 object AppControlStore {

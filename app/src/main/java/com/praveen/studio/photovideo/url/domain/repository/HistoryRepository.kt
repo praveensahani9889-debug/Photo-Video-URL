@@ -5,15 +5,18 @@ import android.net.Uri
 import android.util.Log
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
-import com.praveen.studio.photovideo.url.data.local.SecureStorageManager
+import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
+import com.praveen.studio.photovideo.url.data.model.SupabaseAccount
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
+import com.praveen.studio.photovideo.url.data.remote.HistoryRemoteStore
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.first
 
 /** Result of deleting uploads: how many are gone, how many failed and why. */
 data class DeleteOutcome(
@@ -27,21 +30,42 @@ class HistoryRepository(
     private val preferencesManager: PreferencesManager = PreferencesManager(context),
     private val installationIdProvider: InstallationIdProvider = InstallationIdProvider(context),
     private val firebaseDbManager: FirebaseDatabaseManager = FirebaseDatabaseManager(),
-    private val secureStorageManager: SecureStorageManager = SecureStorageManager(context),
     private val supabaseClient: SupabaseStorageClient = SupabaseStorageClient()
 ) {
+    private companion object {
+        const val LOCAL_CACHE_MAX = 500
+    }
+
+    private val appContext: Context = context.applicationContext
+
     val installationId: String = installationIdProvider.getInstallationId()
     val deviceFingerprint: String get() = installationId
 
+    val refreshing: StateFlow<Boolean> get() = HistoryRemoteStore.refreshing
+
+    /**
+     * Loads the history from Firebase when the copy in memory is older than a few minutes (or [force]).
+     * There is no live listener: one request per load, the result is also saved on the phone so the next
+     * app start shows the history at once. Never throws.
+     */
+    suspend fun refresh(force: Boolean = false) {
+        try {
+            val loaded = HistoryRemoteStore.refresh(installationId, firebaseDbManager, force) ?: return
+            // the files this app uploaded are now known completely: update the storage estimate of every Supabase
+            SupabaseAccountManager.reconcile(appContext, loaded)
+            val demoOnly = preferencesManager.localHistoryFlow.first().filter { it.isDemo }
+            preferencesManager.saveAllRecords(loaded.take(LOCAL_CACHE_MAX) + demoOnly)
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w("HistoryRepository", "History refresh notice: ${t.message}")
+        }
+    }
+
     fun getHistoryFlow(): Flow<List<UploadRecord>> {
-        // onStart emits an empty remote list first, so the local cache shows immediately even when
-        // Firebase has not answered yet (offline / slow network).
-        val remoteFlow = firebaseDbManager.observeAllUserUploads(installationId)
-            .catch { e ->
-                Log.w("HistoryRepository", "Remote Firebase flow error: ${e.message}")
-                emit(emptyList())
-            }
-            .onStart { emit(emptyList()) }
+        // The remote list is the copy kept in memory (empty until loaded), so the local cache shows immediately
+        // even when Firebase has not answered yet (offline / slow network).
+        val remoteFlow: Flow<List<UploadRecord>> = HistoryRemoteStore.records
         val localFlow = preferencesManager.localHistoryFlow
             .catch { e ->
                 Log.w("HistoryRepository", "Local flow error: ${e.message}")
@@ -97,7 +121,7 @@ class HistoryRepository(
         var failed = 0
         val messages = LinkedHashSet<String>()
         val removedIds = mutableListOf<String>()
-        val config = secureStorageManager.getConfig().takeIf { it.isConfigured && !it.isPlaceholder }
+        val accounts = SupabaseAccountManager.list(appContext).filter { it.isUsable }
 
         records.forEachIndexed { index, record ->
             onProgress(index, records.size)
@@ -109,7 +133,7 @@ class HistoryRepository(
                 return@forEachIndexed
             }
 
-            val storageResult = deleteFromStorage(record, config)
+            val storageResult = deleteFromStorage(record, accounts)
             if (storageResult.isFailure) {
                 failed++
                 messages += storageResult.exceptionOrNull()?.message ?: "Could not delete ${record.fileName}"
@@ -130,36 +154,41 @@ class HistoryRepository(
         }
 
         preferencesManager.removeRecords(removedIds)
+        // the screen updates at once, Firebase is not asked again
+        HistoryRemoteStore.remove(removedIds)
         onProgress(records.size, records.size)
         return DeleteOutcome(deleted, failed, messages.toList())
     }
 
-    private suspend fun deleteFromStorage(record: UploadRecord, config: SupabaseConfig?): Result<Unit> {
+    private suspend fun deleteFromStorage(record: UploadRecord, accounts: List<SupabaseAccount>): Result<Unit> {
         // Free trial photos live in the developer's storage, which this app has no right to delete from.
         if (record.isFreeTier) return Result.success(Unit)
 
         val publicUrl = record.effectiveSupabaseUrl
         if (record.storagePath.isBlank() && publicUrl.isBlank()) return Result.success(Unit)
 
-        if (config == null) {
+        if (accounts.isEmpty()) {
             return Result.failure(
                 IllegalStateException("Supabase is not set up in Settings, so files cannot be deleted from storage.")
             )
         }
 
-        val location = locateInStorage(record, publicUrl, config)
+        // The file belongs to one of the saved Supabase projects: the keys of that project are needed
+        val account = SupabaseAccountManager.accountOfRecord(accounts, record)
+            ?: accounts.takeIf { hostOf(publicUrl) == null }?.firstOrNull()
+            ?: return Result.failure(
+                IllegalStateException("${record.fileName} is stored in another Supabase project than the ones set up in Settings.")
+            )
+
+        val location = locateInStorage(record, publicUrl, account.config)
             ?: return Result.failure(IllegalStateException("The storage path of ${record.fileName} is unknown."))
 
-        // The keys in Settings only work for their own project
-        val recordHost = hostOf(publicUrl)
-        val configHost = hostOf(config.normalizedUrl)
-        if (recordHost != null && configHost != null && !recordHost.equals(configHost, ignoreCase = true)) {
-            return Result.failure(
-                IllegalStateException("${record.fileName} is stored in another Supabase project than the one set up in Settings.")
-            )
+        val result = supabaseClient.deleteObject(account.config, location.first, location.second, publicUrl.ifBlank { null })
+        if (result.isSuccess) {
+            // the project has room again
+            SupabaseAccountManager.recordDelete(appContext, account.id, record.fileSize)
         }
-
-        return supabaseClient.deleteObject(config, location.first, location.second, publicUrl.ifBlank { null })
+        return result
     }
 
     /** Bucket and path of the file: stored with the record, or read from the public URL of older records. */

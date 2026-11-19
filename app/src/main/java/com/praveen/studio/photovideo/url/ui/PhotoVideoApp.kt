@@ -20,6 +20,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
@@ -46,6 +47,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
+import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.BuildConfig
 import com.praveen.studio.photovideo.url.data.model.AppControlStore
@@ -84,6 +86,13 @@ fun PhotoVideoApp() {
     var identityReady by remember { mutableStateOf(false) }
     val appControl by AppControlStore.state.collectAsState()
     val controlScope = rememberCoroutineScope()
+
+    // A Supabase project got full and the app switched to the next one (a notification is shown too)
+    LaunchedEffect(Unit) {
+        SupabaseAccountManager.events.collect { event ->
+            Toast.makeText(context, event.message, Toast.LENGTH_LONG).show()
+        }
+    }
 
     // Android 13+: ask once for the permission to show messages (notifications) from Firebase
     val notificationPermissionLauncher = rememberLauncherForActivityResult(

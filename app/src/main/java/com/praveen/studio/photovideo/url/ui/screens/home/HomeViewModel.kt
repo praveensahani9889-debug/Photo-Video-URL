@@ -62,6 +62,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     init {
         refreshConfigStatus()
         cleanupTempFiles()
+        // The counters are saved on the phone; Firebase is only asked when they are stale (no live listener)
+        viewModelScope.launch { uploadRepository.refreshUserDetails(false) }
     }
 
     fun refreshConfigStatus() {

@@ -5,8 +5,7 @@ import android.provider.Settings
 import android.util.Log
 import com.praveen.studio.photovideo.url.data.local.ConfigBackupCodec
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
-import com.praveen.studio.photovideo.url.data.local.SecureStorageManager
-import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
+import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,9 +33,6 @@ import kotlin.coroutines.cancellation.CancellationException
  */
 object IdentityManager {
     private const val TAG = "IdentityManager"
-
-    /** Free demo photos allowed per network (3 per phone; a network can have several phones). */
-    const val IP_FREE_MAX = 30L
 
     private const val RESOLVE_TIMEOUT_MS = 6_000L
     private const val SYNC_TIMEOUT_MS = 4_000L
@@ -123,12 +119,11 @@ object IdentityManager {
 
     private suspend fun syncSupabaseConfig(context: Context, provider: InstallationIdProvider, androidId: String?) {
         if (androidId == null || !provider.isVerified()) return
-        val secure = SecureStorageManager(context)
-        val local = secure.getConfig()
         val installationId = provider.getInstallationId()
         val manager = FirebaseDatabaseManager()
+        val usable = SupabaseAccountManager.list(context).filter { it.isUsable }
 
-        if (local.isConfigured && !local.isPlaceholder) {
+        if (usable.isNotEmpty()) {
             // Older installs: make sure a backup exists (does not delay the start screen)
             if (!backupChecked) {
                 backupChecked = true
@@ -136,7 +131,14 @@ object IdentityManager {
                     try {
                         val remote = manager.fetchConfigBackup(installationId)
                         if (remote.isSuccess && remote.getOrNull() == null) {
-                            manager.saveConfigBackup(installationId, ConfigBackupCodec.encrypt(androidId, local))
+                            manager.saveConfigBackup(
+                                installationId,
+                                ConfigBackupCodec.encryptAccounts(
+                                    androidId,
+                                    SupabaseAccountManager.list(context),
+                                    SupabaseAccountManager.activeId.value
+                                )
+                            )
                         }
                     } catch (_: Throwable) {
                     }
@@ -145,24 +147,37 @@ object IdentityManager {
         } else if (!restoreTried) {
             restoreTried = true
             val blob = manager.fetchConfigBackup(installationId).getOrNull() ?: return
-            val restored = ConfigBackupCodec.decrypt(androidId, blob)
-            if (restored != null && restored.isConfigured && !restored.isPlaceholder) {
-                secure.saveConfig(restored)
-                Log.d(TAG, "Supabase settings restored")
+            val restored = ConfigBackupCodec.decryptAccounts(androidId, blob)
+            if (restored != null) {
+                val good = restored.first.filter { it.isUsable }
+                if (good.isNotEmpty()) {
+                    SupabaseAccountManager.restore(context, good, restored.second)
+                    Log.d(TAG, "Supabase settings restored (${good.size} project(s))")
+                }
             }
         }
     }
 
-    /** Backs up the settings the user just saved (encrypted). Best effort. */
-    suspend fun backupConfig(context: Context, config: SupabaseConfig) {
+    /**
+     * Backs up all Supabase projects the user just saved (encrypted, ONE write). Called only when the user saves,
+     * edits or deletes a project - never for usage counters. Best effort.
+     */
+    suspend fun backupAccounts(context: Context) {
         try {
             val app = context.applicationContext
             val provider = InstallationIdProvider(app)
             if (!provider.isVerified()) return
             val androidId = rawAndroidId(app) ?: return
-            FirebaseDatabaseManager().saveConfigBackup(
+            val accounts = SupabaseAccountManager.list(app).filter { it.isUsable }
+            val manager = FirebaseDatabaseManager()
+            if (accounts.isEmpty()) {
+                // nothing left: the backup must not bring deleted projects back
+                manager.deleteConfigBackup(provider.getInstallationId())
+                return
+            }
+            manager.saveConfigBackup(
                 provider.getInstallationId(),
-                ConfigBackupCodec.encrypt(androidId, config)
+                ConfigBackupCodec.encryptAccounts(androidId, accounts, SupabaseAccountManager.activeId.value)
             )
         } catch (e: CancellationException) {
             throw e

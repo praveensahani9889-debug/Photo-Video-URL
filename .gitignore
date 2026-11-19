@@ -16,7 +16,3 @@
 local.properties
 .env
 debug.keystore
-
-# Firebase service account keys are secrets
-service-account*.json
-*-firebase-adminsdk-*.json

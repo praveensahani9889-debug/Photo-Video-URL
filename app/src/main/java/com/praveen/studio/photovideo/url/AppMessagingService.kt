@@ -6,8 +6,7 @@ import com.google.firebase.messaging.RemoteMessage
 /**
  * Receives the messages that the developer publishes with Firebase Cloud Messaging.
  * Message with a "notification" part: shown by the system when the app is closed, and by this service when it is open.
- * Data-only message (shown with the app logo, also while the app is closed): keys "title", "body" (or "message"),
- * an optional "link" that opens when it is tapped and an optional "image" (https picture).
+ * Data-only message: keys "title", "body" (or "message") and an optional "link" that opens when it is tapped.
  */
 class AppMessagingService : FirebaseMessagingService() {
 
@@ -19,8 +18,7 @@ class AppMessagingService : FirebaseMessagingService() {
             ?: message.data["body"]
             ?: message.data["message"]
             ?: return
-        val image = message.notification?.imageUrl?.toString() ?: message.data["image"]
-        AppNotifications.show(applicationContext, title, body, message.data["link"], image)
+        AppNotifications.show(applicationContext, title, body, message.data["link"])
     }
 
     override fun onNewToken(token: String) {

@@ -127,6 +127,17 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
         _deleteState.value = DeleteState.Idle
     }
 
+    /** True while the history is being loaded from Firebase. */
+    val refreshing: StateFlow<Boolean> = historyRepository.refreshing
+
+    /**
+     * Loads the history from Firebase. Without [force] nothing is requested when the copy in memory is still fresh
+     * (a few minutes), so opening the History tab again and again does not cost a request each time.
+     */
+    fun refresh(force: Boolean = false) {
+        viewModelScope.launch { historyRepository.refresh(force) }
+    }
+
     fun setFilter(filter: String) {
         _selectedFilter.value = filter
     }
