@@ -44,6 +44,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -59,6 +61,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
+import com.praveen.studio.photovideo.url.data.model.UploadRecord
+import com.praveen.studio.photovideo.url.ui.screens.advanced.AdvancedOptionsDialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 
@@ -76,6 +80,9 @@ fun HistoryScreen(
     val selectedIds by viewModel.selectedIds.collectAsState()
     val deleteState by viewModel.deleteState.collectAsState()
     val refreshing by viewModel.refreshing.collectAsState()
+    // Advanced options of one link (opened from its card)
+    var advancedFor by remember { mutableStateOf<UploadRecord?>(null) }
+    val historyContext = LocalContext.current
     var showConfirm by remember { mutableStateOf(false) }
     val allSelected = items.isNotEmpty() && items.all { it.shortId in selectedIds }
 
@@ -295,12 +302,23 @@ fun HistoryScreen(
                             record = record,
                             selectionMode = selectionMode,
                             selected = record.shortId in selectedIds,
-                            onSelectionToggle = { viewModel.toggleSelected(record.shortId) }
+                            onSelectionToggle = { viewModel.toggleSelected(record.shortId) },
+                            onAdvanced = { advancedFor = it }
                         )
                     }
                 }
             }
         }
+    }
+    advancedFor?.let { target ->
+        AdvancedOptionsDialog(
+            record = target,
+            loadExisting = true,
+            onFinished = { updated ->
+                advancedFor = null
+                if (updated != null) Toast.makeText(historyContext, "Link options saved", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
     // 1. Confirmation
     if (showConfirm) {

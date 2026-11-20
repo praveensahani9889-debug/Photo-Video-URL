@@ -58,6 +58,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -74,6 +76,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,6 +92,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -103,8 +107,11 @@ import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
+import com.praveen.studio.photovideo.url.data.model.PublicLinkRecord
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
+import com.praveen.studio.photovideo.url.domain.util.AppLinks
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
+import com.praveen.studio.photovideo.url.domain.util.PasswordHasher
 import com.praveen.studio.photovideo.url.domain.util.ViewerContent
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 import kotlinx.coroutines.CoroutineScope
@@ -146,10 +153,14 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
 
     var attempt by remember(shortId) { mutableIntStateOf(0) }
     var content by remember(shortId) { mutableStateOf<ViewerContent?>(null) }
+    // the link as saved by its owner: page background, button under the file ...
+    var linkRecord by remember(shortId) { mutableStateOf<PublicLinkRecord?>(null) }
 
     LaunchedEffect(shortId, attempt) {
         content = null
-        content = LinkRules.resolve(shortId) { id -> dbManager.lookupPublicLink(id) }
+        val (resolved, found) = LinkRules.resolveFull(shortId) { id -> dbManager.lookupPublicLink(id) }
+        linkRecord = found
+        content = resolved
     }
 
     BackHandler(onBack = onClose)
@@ -207,10 +218,18 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
         }
     }
 
+    // the owner can choose the page colour (Advanced options > Background)
+    val ownerColor = linkRecord?.options?.bgColor?.let { hex ->
+        try {
+            Color(android.graphics.Color.parseColor(hex))
+        } catch (_: Exception) {
+            null
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(ViewerBackground)
+            .background(ownerColor ?: ViewerBackground)
             // swallow touches so nothing behind the viewer reacts
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
     ) {
@@ -270,6 +289,29 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
                 modifier = Modifier.align(Alignment.Center)
             )
 
+            ViewerContent.Expired -> ViewerMessage(
+                title = "Link expired",
+                message = "This link has expired and is no longer available.",
+                onRetry = null,
+                onClose = onClose,
+                modifier = Modifier.align(Alignment.Center)
+            )
+
+            ViewerContent.ViewLimitReached -> ViewerMessage(
+                title = "View limit reached",
+                message = "This link reached the number of views its owner allowed.",
+                onRetry = null,
+                onClose = onClose,
+                modifier = Modifier.align(Alignment.Center)
+            )
+
+            is ViewerContent.PasswordRequired -> ViewerPasswordPrompt(
+                record = c.record,
+                onUnlocked = { content = LinkRules.contentFor(c.shortId, c.record, passwordOk = true) },
+                onClose = onClose,
+                modifier = Modifier.align(Alignment.Center)
+            )
+
             ViewerContent.Unsupported -> ViewerMessage(
                 title = "Unsupported file type",
                 message = "This file type cannot be displayed.",
@@ -285,6 +327,29 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
                 onClose = onClose,
                 modifier = Modifier.align(Alignment.Center)
             )
+        }
+
+        // Button under the file (Advanced options > Action button), shown when the file itself is shown
+        val shown = content
+        val buttonOptions = linkRecord?.options
+        if (buttonOptions != null && buttonOptions.hasButton &&
+            (shown is ViewerContent.Image || shown is ViewerContent.Video || shown is ViewerContent.Pdf || shown is ViewerContent.Download)
+        ) {
+            val buttonColor = try {
+                Color(android.graphics.Color.parseColor(buttonOptions.buttonColor.ifBlank { "#0EA5E9" }))
+            } catch (_: Exception) {
+                CyanPrimary
+            }
+            Button(
+                onClick = { AppLinks.open(context, buttonOptions.buttonUrl) },
+                colors = ButtonDefaults.buttonColors(containerColor = buttonColor, contentColor = Color.White),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 24.dp, vertical = 20.dp)
+            ) {
+                Text(buttonOptions.buttonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
 
         // Top bar: close / copy link / share link
@@ -344,6 +409,87 @@ private fun ViewerIconButton(icon: ImageVector, description: String, onClick: ()
             .background(Color.Black.copy(alpha = 0.45f), CircleShape)
     ) {
         Icon(imageVector = icon, contentDescription = description, tint = Color.White)
+    }
+}
+
+/** The owner protected this link: the password is checked here (it is never sent anywhere). */
+@Composable
+private fun ViewerPasswordPrompt(
+    record: PublicLinkRecord,
+    onUnlocked: () -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var password by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val options = record.options
+
+    fun submit() {
+        if (busy || password.isEmpty()) return
+        busy = true
+        error = null
+        scope.launch {
+            val ok = withContext(Dispatchers.Default) {
+                PasswordHasher.verify(password, options.passwordSalt, options.passwordHash, options.passwordIter)
+            }
+            busy = false
+            if (ok) onUnlocked() else error = "Wrong password. Try again."
+        }
+    }
+
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = options.pageTitle.ifBlank { "Password required" },
+            color = Color.White,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = options.pageMessage.ifBlank { "The owner of this link protected it with a password." },
+            color = Color.White.copy(alpha = 0.75f),
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it; error = null },
+            label = { Text("Password") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            isError = error != null,
+            supportingText = error?.let { message -> { Text(message) } },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedLabelColor = Color.White,
+                unfocusedLabelColor = Color.White.copy(alpha = 0.7f),
+                focusedBorderColor = Color.White,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.5f),
+                cursorColor = Color.White
+            )
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { submit() }, enabled = !busy && password.isNotEmpty()) {
+                if (busy) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                } else {
+                    Text("Open")
+                }
+            }
+            OutlinedButton(
+                onClick = onClose,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+            ) { Text("Close") }
+        }
     }
 }
 

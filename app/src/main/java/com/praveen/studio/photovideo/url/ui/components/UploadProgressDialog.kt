@@ -404,6 +404,16 @@ fun UploadProgressDialog(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                // the options chosen on the Advanced options page (expiry, password, views ...)
+                                val optionLines = record.options.summary()
+                                if (optionLines.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = optionLines.joinToString("  \u2022  "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
 

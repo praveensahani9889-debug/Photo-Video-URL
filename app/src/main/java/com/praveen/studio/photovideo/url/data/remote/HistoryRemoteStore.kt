@@ -84,6 +84,14 @@ object HistoryRemoteStore {
         }
     }
 
+    /** The link got a new address / new options: the entry is replaced in place, without asking Firebase. */
+    fun replace(oldId: String, record: UploadRecord) {
+        synchronized(lock) {
+            val list = _records.value.filterNot { it.shortId == oldId || it.shortId == record.shortId }
+            _records.value = (listOf(record) + list).sortedByDescending { it.createdAt }
+        }
+    }
+
     /** Deleted uploads disappear at once, without asking Firebase. */
     fun remove(ids: Collection<String>) {
         if (ids.isEmpty()) return

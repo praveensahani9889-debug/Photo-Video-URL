@@ -21,8 +21,14 @@ data class UploadRecord(
     var uploadDuration: Long = 0L,
     var status: String = "completed",
     var isDemo: Boolean = false,
-    var isFreeTier: Boolean = false
+    var isFreeTier: Boolean = false,
+    /** Optional advanced settings of the link (custom address, expiry, password, view limit, page design). */
+    var options: LinkOptions = LinkOptions()
 ) {
+    /** The link ran out of time: the file and the link are deleted when the app sees it. */
+    val isExpired: Boolean
+        get() = options.isExpired()
+
     val effectiveSupabaseUrl: String
         get() = supabaseUrl.ifEmpty { originalSupabaseUrl }
 

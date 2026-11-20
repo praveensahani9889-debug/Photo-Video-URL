@@ -55,10 +55,34 @@ class HistoryRepository(
             SupabaseAccountManager.reconcile(appContext, loaded)
             val demoOnly = preferencesManager.localHistoryFlow.first().filter { it.isDemo }
             preferencesManager.saveAllRecords(loaded.take(LOCAL_CACHE_MAX) + demoOnly)
+            // links that ran out of time are removed now (Supabase file + Firebase link)
+            purgeExpired()
         } catch (e: kotlin.coroutines.cancellation.CancellationException) {
             throw e
         } catch (t: Throwable) {
             Log.w("HistoryRepository", "History refresh notice: ${t.message}")
+        }
+    }
+
+    /**
+     * Links whose expiry time (Advanced options) has passed: the file is deleted from Supabase and the link from
+     * Firebase, both places, exactly like a delete from History. It looks at the history that is already in memory /
+     * saved on the phone, so nothing is asked from Firebase when nothing has expired. Returns how many were deleted.
+     *
+     * (The website stops showing a link at its expiry time by itself; the file can only be removed from Supabase
+     * by this app, because the Supabase keys stay on the phone.)
+     */
+    suspend fun purgeExpired(): Int {
+        return try {
+            val expired = (HistoryRemoteStore.records.value + preferencesManager.localHistoryFlow.first())
+                .distinctBy { it.shortId }
+                .filter { !it.isDemo && !it.isFreeTier && it.isExpired }
+            if (expired.isEmpty()) 0 else deleteRecords(expired) { _, _ -> }.deleted
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w("HistoryRepository", "Expiry cleanup notice: ${t.message}")
+            0
         }
     }
 

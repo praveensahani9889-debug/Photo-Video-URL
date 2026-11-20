@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
+import com.praveen.studio.photovideo.url.data.model.LinkOptions
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -126,6 +127,21 @@ class PreferencesManager(private val context: Context) {
         }
     }
 
+    /** The link got a new address / new options: the saved copy is replaced (the old id disappears). */
+    suspend fun replaceRecord(oldId: String, record: UploadRecord) {
+        try {
+            context.dataStore.edit { prefs ->
+                val list = deserializeList(prefs[KEY_LOCAL_UPLOADS] ?: "[]").toMutableList()
+                val index = list.indexOfFirst { it.shortId == oldId || it.shortId == record.shortId }
+                list.removeAll { it.shortId == oldId || it.shortId == record.shortId }
+                list.add(if (index >= 0) index else 0, record)
+                prefs[KEY_LOCAL_UPLOADS] = serializeList(list.take(MAX_LOCAL_RECORDS))
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) { }
+    }
+
     /** Removes deleted uploads from the local copy (and from the hidden list, they no longer exist anywhere). */
     suspend fun removeRecords(ids: Collection<String>) {
         if (ids.isEmpty()) return
@@ -197,7 +213,39 @@ class PreferencesManager(private val context: Context) {
                 put("status", record.status)
                 put("isDemo", record.isDemo)
                 put("isFreeTier", record.isFreeTier)
+                if (!record.options.isDefault || record.options.views > 0L) put("options", optionsToJson(record.options))
             }
+        }
+
+        private fun optionsToJson(o: LinkOptions): JSONObject = JSONObject().apply {
+            put("expiresAt", o.expiresAt)
+            put("maxViews", o.maxViews)
+            put("views", o.views)
+            put("hasPassword", o.isPasswordProtected)
+            put("bgColor", o.bgColor)
+            put("buttonText", o.buttonText)
+            put("buttonColor", o.buttonColor)
+            put("buttonUrl", o.buttonUrl)
+            put("pageTitle", o.pageTitle)
+            put("pageMessage", o.pageMessage)
+            put("allowDownload", o.allowDownload)
+        }
+
+        private fun jsonToOptions(o: JSONObject?): LinkOptions {
+            if (o == null) return LinkOptions()
+            return LinkOptions(
+                expiresAt = o.optLong("expiresAt", 0L),
+                maxViews = o.optLong("maxViews", 0L),
+                views = o.optLong("views", 0L),
+                hasPassword = o.optBoolean("hasPassword", false),
+                bgColor = o.optString("bgColor"),
+                buttonText = o.optString("buttonText"),
+                buttonColor = o.optString("buttonColor"),
+                buttonUrl = o.optString("buttonUrl"),
+                pageTitle = o.optString("pageTitle"),
+                pageMessage = o.optString("pageMessage"),
+                allowDownload = o.optBoolean("allowDownload", true)
+            )
         }
 
         private fun jsonToRecord(obj: JSONObject): UploadRecord {
@@ -222,7 +270,8 @@ class PreferencesManager(private val context: Context) {
                 uploadDuration = obj.optLong("uploadDuration", 0L),
                 status = obj.optString("status", "completed"),
                 isDemo = obj.optBoolean("isDemo", false),
-                isFreeTier = obj.optBoolean("isFreeTier", false)
+                isFreeTier = obj.optBoolean("isFreeTier", false),
+                options = jsonToOptions(obj.optJSONObject("options"))
             )
         }
 

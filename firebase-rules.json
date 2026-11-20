@@ -3,7 +3,52 @@
     "public_links": {
       "$id": {
         ".read": true,
-        ".write": "!data.exists() || !newData.exists()"
+        ".write": "!data.exists() || !newData.exists()",
+        "views": {
+          ".write": "data.parent().exists() && newData.isNumber() && newData.val() == (data.exists() ? data.val() : 0) + 1",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "expiresAt": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "maxViews": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 1000000"
+        },
+        "hasPassword": {
+          ".validate": "newData.isBoolean()"
+        },
+        "passwordHash": {
+          ".validate": "newData.isString() && newData.val().length == 64"
+        },
+        "passwordSalt": {
+          ".validate": "newData.isString() && newData.val().length == 32"
+        },
+        "passwordIter": {
+          ".validate": "newData.isNumber() && newData.val() >= 1000"
+        },
+        "bgColor": {
+          ".validate": "newData.isString() && newData.val().matches(/^#[0-9A-Fa-f]{6}$/)"
+        },
+        "button": {
+          "text": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 30"
+          },
+          "color": {
+            ".validate": "newData.isString() && newData.val().matches(/^#[0-9A-Fa-f]{6}$/)"
+          },
+          "url": {
+            ".validate": "newData.isString() && newData.val().matches(/^https?:[/][/].{1,490}$/)"
+          }
+        },
+        "pageTitle": {
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "pageMessage": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "allowDownload": {
+          ".validate": "newData.isBoolean()"
+        }
       }
     },
     "photo_video_url": {

@@ -5,6 +5,7 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import com.praveen.studio.photovideo.url.data.model.LinkOptions
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.PublicLinkDetails
 import com.praveen.studio.photovideo.url.data.model.PublicLinkLookup
@@ -15,6 +16,7 @@ import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
+import com.praveen.studio.photovideo.url.domain.util.LinkSlugRules
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -165,7 +167,7 @@ class FirebaseDatabaseManager {
                             "termsUrl" to "https://ivu.gt.tc/terms",
                             "privacyUrl" to "https://ivu.gt.tc/privacy",
                             "domain" to "https://ivu.gt.tc",
-                            "version" to "2.7.0"
+                            "version" to "2.8.0"
                         )
                     ).await()
                 }
@@ -199,6 +201,8 @@ class FirebaseDatabaseManager {
                     ipLimitEnabled = readBoolean(snap.child("ipLimitEnabled"), true),
                     ipFreeLimit = if (ipLimitNode.exists()) getNumberAsLong(ipLimitNode).coerceAtLeast(0L) else 30L,
                     maxSupabaseAccounts = if (maxAccountsNode.exists()) getNumberAsLong(maxAccountsNode).toInt() else 5,
+                    advancedOptionsEnabled = readBoolean(snap.child("advancedOptionsEnabled"), true),
+                    blockedWords = text("blockedWords").split(',', ';', '\n').map { it.trim() }.filter { it.isNotEmpty() },
                     maintenance = readBoolean(snap.child("maintenance"), false),
                     maintenanceMessage = text("maintenanceMessage"),
                     newUpdate = readBoolean(snap.child("newUpdate"), false),
@@ -775,7 +779,8 @@ class FirebaseDatabaseManager {
                             uploadTime = uploadTime,
                             createdAt = timestamp,
                             timestamp = timestamp,
-                            isFreeTier = isFreeTier
+                            isFreeTier = isFreeTier,
+                            options = parseOptions(child, isPublicNode = false)
                         )
                     )
                 } catch (t: Throwable) {
@@ -898,8 +903,181 @@ class FirebaseDatabaseManager {
             mime = text("mimeType", "mime").lowercase(),
             fileName = text("fileName"),
             storagePath = text("storagePath"),
-            active = active
+            active = active,
+            options = parseOptions(snap, isPublicNode = true)
         )
+    }
+
+    /** Reads the advanced options of a Firebase node (public link or history entry). Missing fields = not set. */
+    private fun parseOptions(node: DataSnapshot, isPublicNode: Boolean): LinkOptions {
+        fun number(key: String): Long = (node.child(key).value as? Number)?.toLong() ?: 0L
+        fun text(key: String): String = (node.child(key).value as? String)?.trim().orEmpty()
+        val button = node.child("button")
+        val allowRaw = node.child("allowDownload").value
+        val hash = if (isPublicNode) text("passwordHash") else ""
+        val flag = node.child("hasPassword").value
+        return LinkOptions(
+            expiresAt = number("expiresAt"),
+            maxViews = number("maxViews"),
+            views = number("views"),
+            passwordHash = hash,
+            passwordSalt = if (isPublicNode) text("passwordSalt") else "",
+            passwordIter = number("passwordIter").toInt(),
+            hasPassword = flag == true || hash.isNotEmpty(),
+            bgColor = text("bgColor"),
+            buttonText = (button.child("text").value as? String).orEmpty(),
+            buttonColor = (button.child("color").value as? String).orEmpty(),
+            buttonUrl = (button.child("url").value as? String).orEmpty(),
+            pageTitle = text("pageTitle"),
+            pageMessage = text("pageMessage"),
+            allowDownload = !(allowRaw == false || (allowRaw is String && allowRaw.equals("false", ignoreCase = true)))
+        )
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Advanced link options: custom address, expiry, password, view limit, page design
+    // ---------------------------------------------------------------------------------------------
+
+    /** Is https://ivu.gt.tc/<slug> still free? One read of public_links/<slug>. */
+    suspend fun isLinkNameFree(slug: String): Result<Boolean> {
+        val links = publicLinksRef()
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        return try {
+            val snap = withTimeout(LOOKUP_TIMEOUT_MS) { links.child(slug).get().await() }
+            Result.success(!snap.exists())
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("No answer. Check your internet connection."))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Result.failure(IllegalStateException(describeError(t), t))
+        }
+    }
+
+    private fun folderOf(record: UploadRecord): String? {
+        val candidates = listOf(record.fileType, record.type, record.shortId.substringBefore('_'))
+        for (candidate in candidates) {
+            val key = candidate.lowercase().removeSuffix("s")
+            if (key.isEmpty()) continue
+            HISTORY_FOLDERS.firstOrNull { it.removeSuffix("s") == key }?.let { return it }
+        }
+        return null
+    }
+
+    private fun snapshotToMap(snap: DataSnapshot): LinkedHashMap<String, Any?> {
+        val map = LinkedHashMap<String, Any?>()
+        (snap.value as? Map<*, *>)?.forEach { (k, v) -> if (k is String) map[k] = v }
+        return map
+    }
+
+    /**
+     * Saves the advanced options of a link and, when [newSlug] differs from the current id, moves the link to the
+     * new address (https://ivu.gt.tc/<newSlug>). Both Firebase places are updated: public_links/<id> (what the
+     * website reads) and the history entry user/<uid>/<category>/<id>.
+     *
+     * Works with the existing database rules (public links can only be created or deleted, not changed):
+     *  - new address: ONE atomic update removes the old nodes and creates the new ones; if the name is taken in the
+     *    meantime Firebase refuses the whole update and nothing changes;
+     *  - same address: the public node is removed and written again with the new options.
+     * Returns the changed record.
+     */
+    suspend fun applyLinkOptions(
+        installationId: String,
+        record: UploadRecord,
+        newSlug: String,
+        options: LinkOptions
+    ): Result<UploadRecord> {
+        val db = getDatabase()
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        val folder = folderOf(record)
+            ?: return Result.failure(IllegalStateException("The file type of this link is unknown."))
+        val oldId = record.shortId
+        val renamed = newSlug != oldId
+        val fullUrl = LinkSlugRules.fullUrl(newSlug)
+        val userPath = "$NODE_USER/$installationId/$folder"
+
+        return try {
+            withTimeout(REGISTER_TIMEOUT_MS) {
+                val userSnap = db.getReference(userPath).child(oldId).get().await()
+                val publicSnap = db.getReference(NODE_PUBLIC_LINKS).child(oldId).get().await()
+
+                // history entry: what is there now (or rebuilt from the record), with the new address + options
+                val userMap = snapshotToMap(userSnap)
+                if (userMap.isEmpty()) {
+                    userMap["fileName"] = record.fileName
+                    userMap["fileType"] = record.type.ifEmpty { record.fileType }.lowercase().removeSuffix("s")
+                    userMap["fileSize"] = record.fileSize
+                    userMap["mimeType"] = record.mimeType
+                    userMap["storageBucket"] = record.storageBucket
+                    userMap["storagePath"] = record.storagePath
+                    userMap["supabaseUrl"] = record.effectiveSupabaseUrl
+                    userMap["uploadDate"] = record.uploadDate
+                    userMap["uploadTime"] = record.uploadTime
+                    userMap["timestamp"] = record.createdAt
+                    userMap["isFreeTier"] = record.isFreeTier
+                }
+                userMap["shortId"] = newSlug
+                userMap["shortUrl"] = fullUrl
+                options.applyTo(userMap, publicNode = false)
+
+                // public node: what the website reads
+                val originalPublic = snapshotToMap(publicSnap)
+                val publicMap = LinkedHashMap(originalPublic)
+                if (publicMap.isEmpty()) {
+                    publicMap["type"] = record.type.ifEmpty { record.fileType }.lowercase().removeSuffix("s")
+                    publicMap["mimeType"] = record.mimeType
+                    publicMap["supabaseUrl"] = record.effectiveSupabaseUrl
+                    publicMap["createdAt"] = ServerValue.TIMESTAMP
+                    publicMap["active"] = true
+                    val name = record.storagePath.substringAfterLast('/').removePrefix("${record.shortId}_")
+                    if (name.isNotBlank()) publicMap["fileName"] = name
+                }
+                options.applyTo(publicMap, publicNode = true)
+
+                if (renamed) {
+                    val updates = HashMap<String, Any?>()
+                    updates["$NODE_PUBLIC_LINKS/$oldId"] = null
+                    updates["$NODE_PUBLIC_LINKS/$newSlug"] = publicMap
+                    updates["$userPath/$oldId"] = null
+                    updates["$userPath/$newSlug"] = userMap
+                    db.reference.updateChildren(updates).await()
+                } else {
+                    db.getReference(userPath).child(oldId).setValue(userMap).await()
+                    val publicRef = db.getReference(NODE_PUBLIC_LINKS).child(oldId)
+                    publicRef.removeValue().await()
+                    try {
+                        publicRef.setValue(publicMap).await()
+                    } catch (t: Throwable) {
+                        // never leave the link without its page: put the old node back
+                        try {
+                            if (originalPublic.isNotEmpty()) publicRef.setValue(originalPublic).await()
+                        } catch (_: Throwable) {
+                        }
+                        throw t
+                    }
+                }
+            }
+            Result.success(
+                record.copy(
+                    shortId = newSlug,
+                    publicUrl = fullUrl,
+                    shortUrl = fullUrl,
+                    options = options
+                )
+            )
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(IllegalStateException("Timed out while saving. Check your internet connection."))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "applyLinkOptions notice: ${t.message}")
+            val message = if (renamed && isPermissionDenied(t)) {
+                "This name was just taken by someone else. Choose another one."
+            } else {
+                describeError(t)
+            }
+            Result.failure(IllegalStateException(message, t))
+        }
     }
 
     /**

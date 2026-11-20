@@ -228,17 +228,92 @@ Publish the rules of **`firebase-rules.json`** (same folder as this README) unde
 ```json
 {
   "rules": {
-    "public_links": { "$id": { ".read": true, ".write": "!data.exists() || !newData.exists()" } },
-    "photo_video_url": { "public_links": { "$id": { ".read": true } } },
-    "user": { "$uid": { ".read": true, ".write": true } },
-    "device_profiles": { "$key": { ".read": true, ".write": "!data.exists()" } },
-    "ip_profiles": { "$key": { ".read": true, ".write": true } },
-    "app": { ".read": true, ".write": false }
+    "public_links": {
+      "$id": {
+        ".read": true,
+        ".write": "!data.exists() || !newData.exists()",
+        "views": {
+          ".write": "data.parent().exists() && newData.isNumber() && newData.val() == (data.exists() ? data.val() : 0) + 1",
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "expiresAt": {
+          ".validate": "newData.isNumber() && newData.val() > 0"
+        },
+        "maxViews": {
+          ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 1000000"
+        },
+        "hasPassword": {
+          ".validate": "newData.isBoolean()"
+        },
+        "passwordHash": {
+          ".validate": "newData.isString() && newData.val().length == 64"
+        },
+        "passwordSalt": {
+          ".validate": "newData.isString() && newData.val().length == 32"
+        },
+        "passwordIter": {
+          ".validate": "newData.isNumber() && newData.val() >= 1000"
+        },
+        "bgColor": {
+          ".validate": "newData.isString() && newData.val().matches(/^#[0-9A-Fa-f]{6}$/)"
+        },
+        "button": {
+          "text": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 30"
+          },
+          "color": {
+            ".validate": "newData.isString() && newData.val().matches(/^#[0-9A-Fa-f]{6}$/)"
+          },
+          "url": {
+            ".validate": "newData.isString() && newData.val().matches(/^https?:[/][/].{1,490}$/)"
+          }
+        },
+        "pageTitle": {
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "pageMessage": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "allowDownload": {
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    },
+    "photo_video_url": {
+      "public_links": {
+        "$id": {
+          ".read": true
+        }
+      }
+    },
+    "user": {
+      "$uid": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "device_profiles": {
+      "$key": {
+        ".read": true,
+        ".write": "!data.exists()"
+      }
+    },
+    "ip_profiles": {
+      "$key": {
+        ".read": true,
+        ".write": true
+      }
+    },
+    "app": {
+      ".read": true,
+      ".write": false
+    }
   }
 }
 ```
 
 * `public_links`: a short link can be created once and never overwritten; it can only be removed (the History delete uses this).
+  The advanced options (see *Version 2.8.0*) are validated here; `views` can only go up by exactly 1 per write (the website counts views with it).
 * `user/<installationId>` holds the upload history of one phone (the app has no login).
 * `device_profiles/<hash>` is **create-only**: the first ID of a phone is saved once and never changes (see *One profile per phone*).
 * `ip_profiles/<hash>/freeUsed` counts free demo photos per network.
@@ -294,11 +369,75 @@ or uploaded.
 **Downloads from the viewer:** Download (APK, files, PDF) saves the file straight into `Downloads` with a notification,
 it no longer opens the browser / Supabase page.
 
+## 🆕 Version 2.8.0 — Advanced link options (custom address, expiry, password, view limit, page design)
+
+After the upload and the ad, **before the result page**, an *Advanced options* page opens. **Everything is optional**:
+*Skip* keeps the default link. The same page can be opened later from History > a file > *Advanced options*.
+(Not shown for the free demo photos. Remote switch: `advancedOptionsEnabled` = `false` hides the page.)
+
+| Option | What the user can do |
+| --- | --- |
+| **Link address** | The default link (`ivu.gt.tc/image_AbC123`) is shown first. The user can type his own name: `ivu.gt.tc/<name>`. 3–30 characters, letters / numbers / `-` / `_` only (saved in lower case). Spaces and symbols like `@ #` are refused. Reserved and blocked words are refused (see below). *Check availability* reads `public_links/<name>`. |
+| **Expiry** | 1 hour / 24 hours / 7 days / 30 days / custom (minutes, hours or days, 5 minutes – 365 days). |
+| **Password** | 4–64 characters. Only a PBKDF2 hash is saved. |
+| **View limit** | 1 – 1,000,000 views. |
+| **Background colour** | 12 swatches or any `#RRGGBB`. |
+| **Button under the file** | Text (30 chars), colour and a web link (`http(s)` only). |
+| **More** | Allow download on / off, page title (60 chars), page message (200 chars). |
+
+### What is saved in Firebase (for the website)
+The options are saved in **`public_links/<id>`** (what the website reads) and in the history entry
+`user/<uid>/<category>/<id>` (what the app reads). `<id>` is the custom name, or `image_xxx` / `video_xxx` ... when no custom
+name was chosen. **A custom link has no type prefix: the file type is the `type` field of the node**
+(`image`, `video`, `document`, `file` or `apk`).
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `expiresAt` | number (ms since 1970) | after this time the link must answer "expired" (410) |
+| `maxViews` | number | after this many views the link must answer "limit reached" (410) |
+| `views` | number | **counted by the website**: +1 per page view (rules allow exactly +1 per write) |
+| `hasPassword` | true | a password is set |
+| `passwordHash` / `passwordSalt` / `passwordIter` | string (64 hex) / string (32 hex) / number | see below (public node only) |
+| `bgColor` | `#RRGGBB` | page background |
+| `button` | `{ text, color, url }` | button below the file |
+| `pageTitle`, `pageMessage` | string | shown on the page |
+| `allowDownload` | `false` | only written when OFF; missing = download allowed |
+
+**Password check on the website.** `hash = PBKDF2-HMAC-SHA256(password as UTF-8, salt = bytes of the hex salt, passwordIter, 32 bytes)`, as hex.
+PHP: `hash_pbkdf2('sha256', $password, hex2bin($salt), $iter, 64, false)` — compare with `hash_equals`.
+JavaScript: `crypto.subtle.deriveBits({name:'PBKDF2', hash:'SHA-256', salt, iterations}, key, 256)`.
+**Be honest with users:** the password is a gate on the page. The Supabase file address is public in `public_links/<id>/supabaseUrl`
+(the existing design of the website), so someone who reads Firebase directly can still open the file. For real secrecy the
+file itself would have to be encrypted (possible later).
+
+**Website checklist** (to do): resolve `/<name>` with `public_links/<name>` for custom names too; refuse expired links and links
+over their view limit; ask for the password; add +1 to `views` (`ServerValue.increment(1)` or REST); draw `bgColor`,
+`pageTitle`, `pageMessage` and the `button`; hide the download button when `allowDownload` is `false`;
+never let a custom name collide with a page of the website (`about`, `contact`, `terms`, `privacy` ... are refused by the app).
+
+### Expiry: when is the file really deleted?
+At its expiry time the link stops working (the website checks `expiresAt`). The **file** is deleted from **Supabase and Firebase**
+by the app (the Supabase keys exist only on the phone): when the app starts, and after the History is loaded. It uses the history
+saved on the phone, so no Firebase request is made when nothing has expired. If the phone stays off, the deletion waits until the
+app is opened next. The *view limit* only blocks the link; it does not delete the file.
+
+### Blocked names
+`BlockedWords.kt` refuses: owner names (`admin`, `praveen`, `praveen_studio` ...), pages and system words (`about`, `privacy`,
+`api`, `login` ...), abusive words (English and Hindi/Urdu in English letters) and words for illegal content; number tricks
+(`adm1n`) are caught too. The developer can add words **without an app update** in Firebase `app/backend/blockedWords`
+(words separated by commas).
+
+### Notes for developers
+* Changing a link moves it atomically (`updateChildren` removes the old nodes and creates the new ones), so it works with the
+  existing rules; if the new name is taken in the meantime Firebase refuses the whole change.
+* `app/backend` new keys: `advancedOptionsEnabled` (`true`/`false`), `blockedWords` (text).
+* Publish the new `firebase-rules.json` (validation of the new fields + `views` counter). The app also works with the old rules.
+
 ## 🆕 Version 2.7.0 — speed, several Supabase projects, new Settings
 
 ### Version numbers (how the next versions are counted)
 `X.Y.Z`: **X** = big upload (2 → 3), **Y** = new features (7 → 8), **Z** = bug fix (0 → 1).
-`versionCode` = `X*100 + Y*10 + Z` (2.7.0 = 270). Change both in `app/build.gradle.kts`, the version in the
+`versionCode` = `X*100 + Y*10 + Z` (2.8.0 = 280). Change both in `app/build.gradle.kts`, the version in the
 workflow file (`android-ci.yml`) and the `version` default in `FirebaseDatabaseManager.kt`.
 
 ### Firebase switches (app/backend, no app update needed)
@@ -413,7 +552,7 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK file (GitHub Releases)
-* `PhotoVideoURL-v2.7.0.apk` – the only APK that is published.
+* `PhotoVideoURL-v2.8.0.apk` – the only APK that is published.
 
 ---
 

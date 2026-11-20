@@ -64,6 +64,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         cleanupTempFiles()
         // The counters are saved on the phone; Firebase is only asked when they are stale (no live listener)
         viewModelScope.launch { uploadRepository.refreshUserDetails(false) }
+        // Links that ran out of time (Advanced options > Expiry) are deleted from Supabase and Firebase.
+        // Uses the history saved on the phone, so nothing is requested when nothing has expired.
+        viewModelScope.launch(Dispatchers.IO) {
+            com.praveen.studio.photovideo.url.domain.repository.HistoryRepository(getApplication()).purgeExpired()
+        }
     }
 
     fun refreshConfigStatus() {
@@ -248,6 +253,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             if (rest.isNotEmpty()) startBatchUpload(rest)
         } else {
             startBatchUpload(listOf(item) + rest)
+        }
+    }
+
+    /** The Advanced options page changed the link (new address / options): the result page shows the new link. */
+    fun replaceSuccessRecord(record: com.praveen.studio.photovideo.url.data.model.UploadRecord) {
+        val current = _uploadStatus.value
+        if (current is UploadStatus.Success) {
+            _uploadStatus.value = current.copy(record = record)
         }
     }
 

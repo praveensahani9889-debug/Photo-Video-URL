@@ -7,7 +7,9 @@ data class PublicLinkRecord(
     val mime: String,
     val fileName: String,
     val storagePath: String,
-    val active: Boolean
+    val active: Boolean,
+    /** Expiry, view limit, password, page design ... (all empty when the owner did not set anything). */
+    val options: LinkOptions = LinkOptions()
 )
 
 sealed interface PublicLinkLookup {

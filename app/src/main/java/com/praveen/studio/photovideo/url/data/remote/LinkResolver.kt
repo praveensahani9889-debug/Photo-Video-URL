@@ -115,7 +115,11 @@ class LinkResolver(
         LinkRules.parseShortId(text)?.let { return it }
         val url = normalizeUrl(text) ?: return null
         val host = url.host.lowercase()
-        return if (host == "ivu.gt.tc" || host == "www.ivu.gt.tc") LinkRules.parseShortId(url.encodedPath) else null
+        return if (host == "ivu.gt.tc" || host == "www.ivu.gt.tc") {
+            LinkRules.parseShortId(url.encodedPath, allowCustom = true)
+        } else {
+            null
+        }
     }
 
     private suspend fun resolveAppLink(shortId: String): LinkResult {
@@ -139,6 +143,10 @@ class LinkResolver(
             ViewerContent.Invalid -> LinkResult.Failed("This is not a valid Photo Video URL link.")
             ViewerContent.NotFound -> LinkResult.Failed("This link was not found. It may have been deleted.")
             ViewerContent.Disabled -> LinkResult.Failed("This link has been disabled.")
+            ViewerContent.Expired -> LinkResult.Failed("This link has expired and is no longer available.")
+            ViewerContent.ViewLimitReached -> LinkResult.Failed("This link reached its view limit and is no longer available.")
+            is ViewerContent.PasswordRequired ->
+                LinkResult.Failed("This link is password protected. Open it in the viewer to enter the password.")
             ViewerContent.Unsupported -> LinkResult.Failed("This file type is not supported.")
             ViewerContent.Unavailable ->
                 LinkResult.Failed("The server cannot be reached right now. Check your internet and try again.")

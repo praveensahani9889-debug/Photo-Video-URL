@@ -27,6 +27,15 @@ sealed interface ViewerContent {
     data class Video(val url: String, val name: String, val mime: String) : ViewerContent
     data class Pdf(val url: String, val name: String, val downloadUrl: String?) : ViewerContent
 
+    /** 410 - the owner set an expiry time and it has passed. */
+    data object Expired : ViewerContent
+
+    /** 410 - the owner set a view limit and it is used up. */
+    data object ViewLimitReached : ViewerContent
+
+    /** The owner protected the link with a password: it must be typed before the file is shown. */
+    data class PasswordRequired(val shortId: String, val record: PublicLinkRecord) : ViewerContent
+
     /** Documents (non-PDF), generic files and APKs: the website redirects to a download. */
     data class Download(
         val type: String,
@@ -45,6 +54,10 @@ object LinkRules {
     const val SITE_URL = "https://ivu.gt.tc"
 
     private val ID_REGEX = Regex("^(image|video|document|file|apk)_[A-Za-z0-9_-]{3,64}$")
+
+    /** A custom address chosen by the owner: ivu.gt.tc/<name> (no type prefix; the type is saved in the link). */
+    private val CUSTOM_REGEX = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{2,29}$")
+    private val FILE_TYPES = setOf("image", "video", "document", "file", "apk")
     private val SUPABASE_HOST = Regex("^[a-z0-9]([a-z0-9-]{1,61})[a-z0-9]\\.supabase\\.co$")
     private val FORBIDDEN_URL_CHARS = Regex("[\\u0000-\\u0020\\u007f\"'<>\\\\`]")
     private val DOT_SEGMENT = Regex("(^|/)(\\.|%2e){2}(/|$)", RegexOption.IGNORE_CASE)
@@ -67,15 +80,23 @@ object LinkRules {
         "pptx" to "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
 
-    /** "/image_AbC123/" or "image_AbC123" -> "image_AbC123"; anything else -> null. */
-    fun parseShortId(raw: String?): String? {
+    /**
+     * "/image_AbC123/" or "image_AbC123" -> "image_AbC123"; anything else -> null.
+     * With [allowCustom] a custom address ("/praveen") is accepted too (the page names of the website are not).
+     */
+    fun parseShortId(raw: String?, allowCustom: Boolean = false): String? {
         if (raw == null) return null
         val s = raw.trim().removePrefix("/").trimEnd('/')
-        return if (ID_REGEX.matches(s)) s else null
+        if (ID_REGEX.matches(s)) return s
+        if (allowCustom && CUSTOM_REGEX.matches(s) && !BlockedWords.isBlocked(s.lowercase())) return s
+        return null
     }
 
-    /** "image", "video", "document", "file" or "apk". */
-    fun typeOf(shortId: String): String = shortId.substringBefore('_')
+    /** True for the automatic ids that start with the file type ("image_AbC123"). */
+    fun isTypedId(shortId: String): Boolean = ID_REGEX.matches(shortId)
+
+    /** "image", "video", "document", "file" or "apk" (empty for a custom address). */
+    fun typeOf(shortId: String): String = if (isTypedId(shortId)) shortId.substringBefore('_') else ""
 
     /** Same checks as is_allowed_storage_url() in the website. */
     fun isAllowedStorageUrl(url: String?): Boolean {
@@ -150,10 +171,15 @@ object LinkRules {
     }
 
     /** Port of handle_media(): decides what the viewer shows for a loaded record. */
-    fun contentFor(shortId: String, record: PublicLinkRecord): ViewerContent {
-        val type = typeOf(shortId)
+    fun contentFor(shortId: String, record: PublicLinkRecord, passwordOk: Boolean = false): ViewerContent {
+        // an automatic id carries the file type; a custom address gets it from the saved link
+        val type = if (isTypedId(shortId)) typeOf(shortId) else record.type.orEmpty()
+        if (type !in FILE_TYPES) return ViewerContent.NotFound
         if (!record.active) return ViewerContent.Disabled
-        if (record.type != null && record.type != type) return ViewerContent.NotFound
+        if (isTypedId(shortId) && record.type != null && record.type != type) return ViewerContent.NotFound
+        if (record.options.isExpired()) return ViewerContent.Expired
+        if (record.options.isViewLimitReached()) return ViewerContent.ViewLimitReached
+        if (record.options.isPasswordProtected && !passwordOk) return ViewerContent.PasswordRequired(shortId, record)
         if (!isAllowedStorageUrl(record.url)) return ViewerContent.NotFound
 
         val name = recordFilename(record, type)
@@ -188,13 +214,18 @@ object LinkRules {
     suspend fun resolve(
         rawId: String,
         lookup: suspend (String) -> PublicLinkLookup
-    ): ViewerContent {
-        val id = parseShortId(rawId) ?: return ViewerContent.Invalid
+    ): ViewerContent = resolveFull(rawId, lookup).first
+
+    /** Same as [resolve], and also returns the link record (page design: background, button ...) when it was found. */
+    suspend fun resolveFull(
+        rawId: String,
+        lookup: suspend (String) -> PublicLinkLookup
+    ): Pair<ViewerContent, PublicLinkRecord?> {
+        val id = parseShortId(rawId, allowCustom = true) ?: return ViewerContent.Invalid to null
         return when (val result = lookup(id)) {
-            is PublicLinkLookup.Found ->
-                contentFor(id, result.record)
-            PublicLinkLookup.Missing -> ViewerContent.NotFound
-            PublicLinkLookup.Error -> ViewerContent.Unavailable
+            is PublicLinkLookup.Found -> contentFor(id, result.record) to result.record
+            PublicLinkLookup.Missing -> ViewerContent.NotFound to null
+            PublicLinkLookup.Error -> ViewerContent.Unavailable to null
         }
     }
 }

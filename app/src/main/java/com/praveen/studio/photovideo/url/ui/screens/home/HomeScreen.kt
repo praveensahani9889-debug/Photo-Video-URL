@@ -41,6 +41,8 @@ import com.praveen.studio.photovideo.url.ui.components.InstalledAppsDialog
 import com.praveen.studio.photovideo.url.ui.components.LargeFileDialog
 import com.praveen.studio.photovideo.url.ui.components.SetupRequiredBanner
 import com.praveen.studio.photovideo.url.ui.components.SetupSupabaseDialog
+import com.praveen.studio.photovideo.url.data.model.AppControlStore
+import com.praveen.studio.photovideo.url.ui.screens.advanced.AdvancedOptionsDialog
 import com.praveen.studio.photovideo.url.ui.screens.settings.SetupRequest
 import com.praveen.studio.photovideo.url.ui.components.SharedUploadDialog
 import com.praveen.studio.photovideo.url.ui.components.StoragePickerDialog
@@ -421,7 +423,8 @@ fun HomeScreen(
     // Automatic ad: when the link was created, an ad shows by itself BEFORE the result page (link, copy, share, QR).
     // Whatever happens with the ad (none available, error, closed) the result page follows.
     val successStatus = uploadStatus as? UploadStatus.Success
-    val successKey = successStatus?.let { "${it.record.shortId}#${it.totalCompleted}" }
+    // (createdAt, not the address: the address can change on the Advanced options page, the key must not)
+    val successKey = successStatus?.let { "${it.record.createdAt}#${it.totalCompleted}" }
     var adHandledFor by remember { mutableStateOf<String?>(null) }
     val waitingForAd = successKey != null && adHandledFor != successKey &&
         AdsConfigProvider.current.shouldShowInterstitialAds
@@ -435,11 +438,31 @@ fun HomeScreen(
             }
         }
     }
-    val shownStatus = if (waitingForAd && successStatus != null) {
-        // "creating the link" stays on screen while the ad loads / plays
+
+    // After the ad (and before the result page): the "Advanced options" page. All optional, the user can skip it.
+    // Not for the free demo photos (they live in the developer's storage) and not when switched off in Firebase.
+    var advancedHandledFor by remember { mutableStateOf<String?>(null) }
+    val control by AppControlStore.state.collectAsState()
+    val showAdvanced = successStatus != null && successKey != null && !waitingForAd &&
+        advancedHandledFor != successKey && control.advancedOptionsEnabled &&
+        !successStatus.record.isDemo && !successStatus.record.isFreeTier
+
+    val shownStatus = if ((waitingForAd || showAdvanced) && successStatus != null) {
+        // "creating the link" stays on screen while the ad loads / plays and while the options page is open
         UploadStatus.RegisteringMetadata(successStatus.record.fileName, successStatus.record.shortId)
     } else {
         uploadStatus
+    }
+
+    if (showAdvanced && successStatus != null) {
+        AdvancedOptionsDialog(
+            record = successStatus.record,
+            loadExisting = false,
+            onFinished = { updated ->
+                advancedHandledFor = successKey
+                if (updated != null) viewModel.replaceSuccessRecord(updated)
+            }
+        )
     }
 
     // Live Upload Progress Dialog

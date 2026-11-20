@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
  *  - demoEnabled / demoImageLimit : free demo photos on / off and how many
  *  - ipLimitEnabled / ipFreeLimit : the free demo limit per network (same public IP) on / off and how many
  *  - maxSupabaseAccounts : how many Supabase projects one user may add (default 5)
+ *  - advancedOptionsEnabled : the "Advanced options" page after an upload on / off
+ *  - blockedWords : extra words that cannot be used in a custom link (separated by commas)
  *  - maintenance (+ maintenanceMessage) : the app shows "under maintenance" and does not open
  *  - newUpdate + latestVersion + updateLink (+ forceUpdate, updateMessage) : "new update available" dialog
  * Safe defaults are used when a field is missing or the phone is offline.
@@ -21,6 +23,10 @@ data class AppControl(
     val ipFreeLimit: Long = 30L,
     /** How many Supabase projects one user can save in Settings. */
     val maxSupabaseAccounts: Int = 5,
+    /** The "Advanced options" page (custom link, expiry, password ...) shown after an upload. */
+    val advancedOptionsEnabled: Boolean = true,
+    /** Extra words that cannot be used in a custom link, on top of the built-in list. */
+    val blockedWords: List<String> = emptyList(),
     val maintenance: Boolean = false,
     val maintenanceMessage: String = "",
     val newUpdate: Boolean = false,

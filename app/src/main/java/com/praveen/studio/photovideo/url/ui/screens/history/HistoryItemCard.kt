@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -79,7 +80,8 @@ fun HistoryItemCard(
     modifier: Modifier = Modifier,
     selectionMode: Boolean = false,
     selected: Boolean = false,
-    onSelectionToggle: () -> Unit = {}
+    onSelectionToggle: () -> Unit = {},
+    onAdvanced: ((UploadRecord) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var isExpanded by remember { mutableStateOf(false) }
@@ -421,6 +423,31 @@ fun HistoryItemCard(
             }
             if (showQr) {
                 QrCodeDialog(link = record.publicUrl, onDismiss = { showQr = false })
+            }
+
+            // Advanced options of the link (custom address, expiry, password, view limit, page design)
+            if (onAdvanced != null && !record.isDemo && !record.isFreeTier) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onAdvanced(record) },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("history_advanced_${record.shortId}")
+                ) {
+                    Icon(imageVector = Icons.Default.Tune, contentDescription = "Advanced options", modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Advanced options", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            val optionLines = record.options.summary()
+            if (optionLines.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = optionLines.joinToString("  \u2022  "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = CyanPrimary
+                )
             }
         }
             if (selectionMode) {
