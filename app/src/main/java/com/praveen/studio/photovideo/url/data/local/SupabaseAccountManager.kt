@@ -98,6 +98,8 @@ object SupabaseAccountManager {
         ensureLoaded(app)
         synchronized(lock) {
             val list = _accounts.value.toMutableList()
+            // the same project (URL or key) is never saved twice
+            if (list.any { it.isDuplicateOf(account) }) return false
             val index = list.indexOfFirst { it.id == account.id }
             if (index >= 0) {
                 val old = list[index]

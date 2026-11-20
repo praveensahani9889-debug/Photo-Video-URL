@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderZip
@@ -298,11 +299,33 @@ fun HistoryItemCard(
                 ) {
                     // Demo (free trial) photos live in the developer's storage: their real URL and path stay hidden
                     if (record.originalSupabaseUrl.isNotBlank() && !record.isDemo && !record.isFreeTier) {
-                        Text(
-                            text = "ORIGINAL SUPABASE URL:",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "ORIGINAL SUPABASE URL:",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            // pencil: opens the Advanced options of this link (address, expiry, password, ...)
+                            if (onAdvanced != null) {
+                                IconButton(
+                                    onClick = { onAdvanced(record) },
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .testTag("history_advanced_${record.shortId}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Advanced options",
+                                        tint = CyanPrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = record.originalSupabaseUrl,
@@ -425,21 +448,6 @@ fun HistoryItemCard(
                 QrCodeDialog(link = record.publicUrl, onDismiss = { showQr = false })
             }
 
-            // Advanced options of the link (custom address, expiry, password, view limit, page design)
-            if (onAdvanced != null && !record.isDemo && !record.isFreeTier) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { onAdvanced(record) },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("history_advanced_${record.shortId}")
-                ) {
-                    Icon(imageVector = Icons.Default.Tune, contentDescription = "Advanced options", modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Advanced options", style = MaterialTheme.typography.labelSmall)
-                }
-            }
             val optionLines = record.options.summary()
             if (optionLines.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(6.dp))

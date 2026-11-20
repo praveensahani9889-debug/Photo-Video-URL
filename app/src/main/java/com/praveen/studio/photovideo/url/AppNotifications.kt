@@ -35,6 +35,24 @@ object AppNotifications {
     /** Topic every phone listens to: publish to the topic "all" in the Firebase console to reach everybody. */
     const val TOPIC_ALL = "all"
 
+    private const val PREFS = "notification_prefs"
+    private const val KEY_MESSAGES_ON = "messages_on"
+
+    /** The switch in Settings > Notifications. On by default. */
+    fun isMessagesEnabled(context: Context): Boolean =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_MESSAGES_ON, true)
+
+    /** Turns the messages of this app on or off: no notification is shown and the topic of Firebase is left / joined again. */
+    fun setMessagesEnabled(context: Context, enabled: Boolean) {
+        val app = context.applicationContext
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_MESSAGES_ON, enabled).apply()
+        try {
+            val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+            if (enabled) messaging.subscribeToTopic(TOPIC_ALL) else messaging.unsubscribeFromTopic(TOPIC_ALL)
+        } catch (_: Throwable) {
+        }
+    }
+
     fun createChannel(context: Context) {
         try {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -58,6 +76,7 @@ object AppNotifications {
     @SuppressLint("MissingPermission")
     fun show(context: Context, title: String, body: String, link: String?, imageUrl: String? = null) {
         try {
+            if (!isMessagesEnabled(context)) return
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
 
             val openIntent = if (!link.isNullOrBlank()) {

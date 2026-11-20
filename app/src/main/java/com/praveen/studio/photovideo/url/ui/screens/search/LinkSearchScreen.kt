@@ -9,6 +9,7 @@ import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -72,6 +74,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -82,6 +85,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.praveen.studio.photovideo.url.R
 import com.praveen.studio.photovideo.url.data.remote.FoundItem
 import com.praveen.studio.photovideo.url.data.remote.FoundKind
 import com.praveen.studio.photovideo.url.domain.util.DownloadHelper
@@ -95,6 +99,7 @@ import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 @Composable
 fun LinkSearchScreen(
     onClose: () -> Unit,
+    openScannerOnStart: Boolean = false,
     viewModel: LinkSearchViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -103,7 +108,7 @@ fun LinkSearchScreen(
     val state by viewModel.state.collectAsState()
     val recents by viewModel.recentSearches.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
-    var showScanner by rememberSaveable { mutableStateOf(false) }
+    var showScanner by rememberSaveable { mutableStateOf(openScannerOnStart) }
 
     // Android 9 needs the storage permission to save into the Downloads folder
     var pendingDownload by remember { mutableStateOf<FoundItem?>(null) }
@@ -242,6 +247,10 @@ fun LinkSearchScreen(
 
                     is SearchUiState.Error -> item {
                         MessageCard(text = s.text, openUrl = null)
+                    }
+
+                    is SearchUiState.Website -> item {
+                        WebsiteCard(title = s.title, text = s.text, url = s.url)
                     }
                 }
             }
@@ -402,6 +411,62 @@ private fun MessageCard(text: String, openUrl: String?) {
                     Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Open in browser")
+                }
+            }
+        }
+    }
+}
+
+/** The website of the service itself: its banner, a short line and a button to open it. */
+@Composable
+private fun WebsiteCard(title: String, text: String, url: String) {
+    val context = LocalContext.current
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("search_website")
+    ) {
+        Column {
+            Image(
+                painter = painterResource(id = R.drawable.ivu_banner),
+                contentDescription = "Photo Video URL banner",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1200f / 630f)
+            )
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = url,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = CyanPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = { openInBrowser(context, url) },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open website")
                 }
             }
         }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Photo Video URL</string>
+    <string name="qr_tile_label">QR scanner</string>
 </resources>

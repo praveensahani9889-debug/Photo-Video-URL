@@ -19,6 +19,7 @@ import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import com.praveen.studio.photovideo.url.domain.util.LinkSlugRules
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -46,6 +47,7 @@ class FirebaseDatabaseManager {
         private const val SHORT_ID_LENGTH = 7
 
         private const val REGISTER_TIMEOUT_MS = 20_000L
+        private const val PUBLIC_WRITE_TIMEOUT_MS = 15_000L
         private const val COUNTER_TIMEOUT_MS = 8_000L
         private const val LOOKUP_TIMEOUT_MS = 10_000L
         private const val DELETE_TIMEOUT_MS = 12_000L
@@ -167,7 +169,7 @@ class FirebaseDatabaseManager {
                             "termsUrl" to "https://ivu.gt.tc/terms",
                             "privacyUrl" to "https://ivu.gt.tc/privacy",
                             "domain" to "https://ivu.gt.tc",
-                            "version" to "2.8.0"
+                            "version" to "2.9.0"
                         )
                     ).await()
                 }
@@ -1042,19 +1044,9 @@ class FirebaseDatabaseManager {
                     updates["$userPath/$newSlug"] = userMap
                     db.reference.updateChildren(updates).await()
                 } else {
+                    // the page of the website first (it is what visitors see), then the entry of the History
+                    replacePublicNode(db.getReference(NODE_PUBLIC_LINKS).child(oldId), publicMap, originalPublic)
                     db.getReference(userPath).child(oldId).setValue(userMap).await()
-                    val publicRef = db.getReference(NODE_PUBLIC_LINKS).child(oldId)
-                    publicRef.removeValue().await()
-                    try {
-                        publicRef.setValue(publicMap).await()
-                    } catch (t: Throwable) {
-                        // never leave the link without its page: put the old node back
-                        try {
-                            if (originalPublic.isNotEmpty()) publicRef.setValue(originalPublic).await()
-                        } catch (_: Throwable) {
-                        }
-                        throw t
-                    }
                 }
             }
             Result.success(
@@ -1077,6 +1069,44 @@ class FirebaseDatabaseManager {
                 describeError(t)
             }
             Result.failure(IllegalStateException(message, t))
+        }
+    }
+
+    /**
+     * Saves the new public node of a link.
+     *  - Current rules (firebase-rules.json): the node is replaced in ONE step, the website never sees a missing link.
+     *  - Older rules only allow "create" and "delete": the node is deleted and written again. This part cannot be
+     *    cancelled half way (a time out between the two steps would leave the link without its page), and if the
+     *    new node is refused the old one is put back.
+     */
+    private suspend fun replacePublicNode(
+        ref: DatabaseReference,
+        newMap: Map<String, Any?>,
+        oldMap: Map<String, Any?>
+    ) {
+        try {
+            withTimeout(PUBLIC_WRITE_TIMEOUT_MS) { ref.setValue(newMap).await() }
+            return
+        } catch (e: TimeoutCancellationException) {
+            throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            if (!isPermissionDenied(t) || oldMap.isEmpty()) throw t
+        }
+
+        withContext(NonCancellable) {
+            ref.removeValue()          // sent first: Firebase keeps the order of the writes
+            val write = ref.setValue(newMap)
+            try {
+                withTimeout(PUBLIC_WRITE_TIMEOUT_MS) { write.await() }
+            } catch (e: TimeoutCancellationException) {
+                // Slow connection: both steps are already queued and are completed when the connection is back.
+                throw IllegalStateException("The connection is slow. The change was sent and is saved as soon as the internet is back.")
+            } catch (t: Throwable) {
+                ref.setValue(oldMap)    // refused: the old page is put back
+                throw t
+            }
         }
     }
 

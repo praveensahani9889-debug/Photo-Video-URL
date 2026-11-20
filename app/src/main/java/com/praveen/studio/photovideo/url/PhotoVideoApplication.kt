@@ -68,7 +68,7 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
         try {
             AppNotifications.createChannel(this)
             val flags = getSharedPreferences(FLAGS, MODE_PRIVATE)
-            if (!flags.getBoolean(FLAG_TOPIC_SUBSCRIBED, false)) {
+            if (AppNotifications.isMessagesEnabled(this) && !flags.getBoolean(FLAG_TOPIC_SUBSCRIBED, false)) {
                 FirebaseMessaging.getInstance().subscribeToTopic(AppNotifications.TOPIC_ALL)
                     .addOnSuccessListener { flags.edit().putBoolean(FLAG_TOPIC_SUBSCRIBED, true).apply() }
             }

@@ -16,6 +16,11 @@ import com.praveen.studio.photovideo.url.ui.theme.PhotoVideoUrlTheme
 
 /** "Search & Download" screen, opened from the bottom bar of the main screen. */
 class LinkSearchActivity : ComponentActivity() {
+    companion object {
+        /** Set by the Quick Settings tile: the QR scanner opens at once. */
+        const val EXTRA_OPEN_SCANNER = "open_scanner"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -31,7 +36,10 @@ class LinkSearchActivity : ComponentActivity() {
             val preferencesManager = remember { PreferencesManager(applicationContext) }
             val themePreference by preferencesManager.themeFlow.collectAsState(initial = ThemePreference.SYSTEM)
             PhotoVideoUrlTheme(themePreference = themePreference) {
-                LinkSearchScreen(onClose = { finish() })
+                LinkSearchScreen(
+                    onClose = { finish() },
+                    openScannerOnStart = intent?.getBooleanExtra(EXTRA_OPEN_SCANNER, false) == true
+                )
             }
         }
     }

@@ -22,6 +22,8 @@ sealed interface SearchUiState {
     /** A friendly note (not supported / nothing to download), optionally with a link to open in the browser. */
     data class Message(val text: String, val openUrl: String?) : SearchUiState
     data class Error(val text: String) : SearchUiState
+    /** The website itself: shown with the banner of Photo Video URL. */
+    data class Website(val url: String, val title: String, val text: String) : SearchUiState
 }
 
 class LinkSearchViewModel(application: Application) : AndroidViewModel(application) {
@@ -48,6 +50,7 @@ class LinkSearchViewModel(application: Application) : AndroidViewModel(applicati
                 is LinkResult.Found -> SearchUiState.Found(result.items)
                 is LinkResult.NotSupported -> SearchUiState.Message(result.message, result.openUrl)
                 is LinkResult.Failed -> SearchUiState.Error(result.message)
+                is LinkResult.Website -> SearchUiState.Website(result.url, result.title, result.text)
             }
         }
     }

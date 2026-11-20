@@ -33,7 +33,23 @@ sealed interface LinkResult {
     data class Found(val items: List<FoundItem>) : LinkResult
     data class NotSupported(val message: String, val openUrl: String?) : LinkResult
     data class Failed(val message: String) : LinkResult
+    /** The website itself (https://ivu.gt.tc or one of its pages): shown with the banner of the service. */
+    data class Website(val url: String, val title: String, val text: String) : LinkResult
 }
+
+/** The pages of the website https://ivu.gt.tc (path -> title and a short line). */
+private val WEBSITE_PAGES = mapOf(
+    "" to ("Photo Video URL" to "Turn photos, videos, documents and files into one short link that opens anywhere."),
+    "about" to ("About Photo Video URL" to "Who is behind the service and what it does."),
+    "features" to ("Features" to "Everything you can do with a Photo Video URL link."),
+    "how-it-works" to ("How it works" to "From choosing a file to sharing the link, step by step."),
+    "faq" to ("Questions & answers" to "Answers to the most common questions."),
+    "terms" to ("Terms and Conditions" to "The rules for using the service."),
+    "privacy" to ("Privacy Policy" to "How your data is handled."),
+    "disclaimer" to ("Disclaimer" to "Important notes about the files that are shared with this service."),
+    "contact" to ("Contact and support" to "Get help or report a problem."),
+    "download" to ("Download the app" to "Get the Photo Video URL app for Android.")
+)
 
 /**
  * Turns what the user typed into something that can be shown and downloaded:
@@ -51,7 +67,7 @@ class LinkResolver(
         private const val TAG = "LinkResolver"
         private const val MAX_HTML_BYTES = 600_000L
         private const val MAX_CANDIDATES = 6
-        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 9; Mobile) PhotoVideoURL/2.5.1"
+        private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 9; Mobile) PhotoVideoURL/2.9.0"
 
         const val NOT_SUPPORTED_MESSAGE =
             "Saving photos or videos from this site is not supported here (YouTube, Instagram, Facebook, X/Twitter, " +
@@ -98,6 +114,9 @@ class LinkResolver(
     private suspend fun resolveInternal(text: String): LinkResult {
         if (text.isEmpty()) return LinkResult.Failed("Paste a link first.")
 
+        // 0. the website itself (https://ivu.gt.tc or one of its pages): its banner is shown
+        websitePage(text)?.let { return it }
+
         // 1. Photo Video URL link or id
         extractShortId(text)?.let { return resolveAppLink(it) }
 
@@ -110,6 +129,16 @@ class LinkResolver(
     // ---------------------------------------------------------------------------------------------
     // Photo Video URL links
     // ---------------------------------------------------------------------------------------------
+
+    private fun websitePage(text: String): LinkResult? {
+        val url = normalizeUrl(text) ?: return null
+        val host = url.host.lowercase()
+        if (host != "ivu.gt.tc" && host != "www.ivu.gt.tc") return null
+        val path = url.encodedPath.trim('/').lowercase()
+        val page = WEBSITE_PAGES[path] ?: return null
+        val address = if (path.isEmpty()) "https://ivu.gt.tc/" else "https://ivu.gt.tc/$path"
+        return LinkResult.Website(address, page.first, page.second)
+    }
 
     private fun extractShortId(text: String): String? {
         LinkRules.parseShortId(text)?.let { return it }

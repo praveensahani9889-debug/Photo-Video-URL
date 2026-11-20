@@ -250,8 +250,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _draftError.value = "This looks like an example value. Enter your own Project URL and anon key."
             return
         }
-        if (accounts.value.any { it.id != account.id && it.sameProject(account) }) {
-            _draftError.value = "This Supabase project and bucket are already added."
+        accounts.value.firstOrNull { it.isDuplicateOf(account) }?.let { existing ->
+            _draftError.value = "This Supabase project is already added as \"${existing.displayName}\". " +
+                "One project can be added only once. Edit the existing entry to change its name, key or bucket."
             return
         }
         val editing = d.id != null

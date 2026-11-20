@@ -231,7 +231,7 @@ Publish the rules of **`firebase-rules.json`** (same folder as this README) unde
     "public_links": {
       "$id": {
         ".read": true,
-        ".write": "!data.exists() || !newData.exists()",
+        ".write": "!data.exists() || !newData.exists() || (newData.child('type').val() === data.child('type').val() && newData.child('supabaseUrl').val() === data.child('supabaseUrl').val() && newData.child('mimeType').val() === data.child('mimeType').val())",
         "views": {
           ".write": "data.parent().exists() && newData.isNumber() && newData.val() == (data.exists() ? data.val() : 0) + 1",
           ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -369,6 +369,24 @@ or uploaded.
 **Downloads from the viewer:** Download (APK, files, PDF) saves the file straight into `Downloads` with a notification,
 it no longer opens the browser / Supabase page.
 
+## 🆕 Version 2.9.0 — QR from gallery, QR tile, safer names, steadier edits
+
+* **QR scanner:** a *Gallery* button reads a QR code from a picture (also when the camera permission is off).
+* **Quick Settings tile:** pull down the quick settings → *Edit* → drag **QR scanner** up. One tap opens the scanner.
+* **Search:** typing `https://ivu.gt.tc` (or one of its pages) shows the banner of the service with an *Open website* button.
+* **Advanced options:** the expiry choices (hours / minutes / days) are big buttons that fit every phone; a custom name is
+  locked once it was created; an existing password stays unless *Change* is tapped; photos and videos have no
+  *Allow download* switch (only documents, files and APKs); colours wrap instead of scrolling sideways.
+* **Editing a link is steadier:** with the rules of this README the public link is replaced in **one step** (no moment
+  without a page). With older rules the app still works (delete + write again, now protected against time outs).
+  **Publish the rules of `firebase-rules.json` again** to get the one-step update.
+* **History:** the big *Advanced options* button is gone; a pencil next to *ORIGINAL SUPABASE URL* opens the same page.
+* **Settings → Notifications:** a direct on / off switch (also leaves / joins the Firebase topic).
+* **Supabase:** one project is one entry (same URL or same key cannot be added again). If an upload fails it is retried
+  once and then tried on the other saved projects; an error is shown only when all of them failed.
+* **Blocked names:** many more abusive words, impersonation names and every page / folder name of the website
+  (`features`, `disclaimer`, `how-it-works`, `thumb`, `config`, `cache`, `errors`, `web_...`).
+
 ## 🆕 Version 2.8.0 — Advanced link options (custom address, expiry, password, view limit, page design)
 
 After the upload and the ad, **before the result page**, an *Advanced options* page opens. **Everything is optional**:
@@ -437,7 +455,7 @@ app is opened next. The *view limit* only blocks the link; it does not delete th
 
 ### Version numbers (how the next versions are counted)
 `X.Y.Z`: **X** = big upload (2 → 3), **Y** = new features (7 → 8), **Z** = bug fix (0 → 1).
-`versionCode` = `X*100 + Y*10 + Z` (2.8.0 = 280). Change both in `app/build.gradle.kts`, the version in the
+`versionCode` = `X*100 + Y*10 + Z` (2.9.0 = 290). Change both in `app/build.gradle.kts`, the version in the
 workflow file (`android-ci.yml`) and the `version` default in `FirebaseDatabaseManager.kt`.
 
 ### Firebase switches (app/backend, no app update needed)
@@ -552,7 +570,7 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK file (GitHub Releases)
-* `PhotoVideoURL-v2.8.0.apk` – the only APK that is published.
+* `PhotoVideoURL-v2.9.0.apk` – the only APK that is published.
 
 ---
 

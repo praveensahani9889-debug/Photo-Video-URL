@@ -11,15 +11,23 @@ object BlockedWords {
     private val RESERVED = setOf(
         // owner / brand
         "admin", "administrator", "praveen", "praveenstudio", "praveen_studio", "photovideourl", "photovideo", "ivu",
-        "official", "staff", "moderator", "owner", "founder", "ceo",
-        // website pages and system names
+        "ivuofficial", "ivugttc", "photovideourlapp", "official", "staff", "moderator", "owner", "founder", "ceo",
+        "team", "mod", "superuser", "sysadmin", "webmaster", "postmaster", "hostmaster",
+        // website pages and system names (every page and folder of https://ivu.gt.tc)
         "about", "contact", "terms", "privacy", "policy", "help", "support", "faq", "legal", "cookies", "tos",
+        "features", "feature", "disclaimer", "howitworks", "how", "thumb", "thumbs", "config", "cache", "errors",
         "api", "app", "apps", "www", "web", "site", "home", "index", "main", "static", "assets", "css", "js", "img",
         "favicon", "robots", "sitemap", "login", "logout", "signin", "signup", "register", "account", "dashboard",
         "settings", "download", "downloads", "view", "views", "share", "search", "mail", "email", "ftp", "root",
         "system", "server", "null", "undefined", "test", "demo", "error", "status", "health", "public", "private",
         "image", "images", "video", "videos", "document", "documents", "file", "files", "apk", "apks",
-        "ivu", "link", "links", "short", "url"
+        "link", "links", "short", "url", "upload", "uploads", "update", "updates", "premium", "pricing",
+        // names that can fool people (banks, payments, big companies, authorities)
+        "security", "secure", "verify", "verified", "verification", "payment", "payments", "bank", "banking",
+        "wallet", "paytm", "phonepe", "gpay", "googlepay", "upi", "lottery", "winner", "giveaway", "kyc",
+        "refund", "billing", "helpline", "customercare", "google", "youtube", "facebook", "instagram", "whatsapp",
+        "telegram", "twitter", "snapchat", "tiktok", "microsoft", "amazon", "flipkart", "apple", "gov",
+        "government", "police", "cyber", "cybercrime", "anonymous"
     )
 
     /** Blocked anywhere inside a name (spaces, "-", "_" and number tricks like "a5s" are ignored). */
@@ -28,23 +36,34 @@ object BlockedWords {
         "admin", "praveen",
         // abusive words (English)
         "fuck", "shit", "bitch", "bastard", "asshole", "dickhead", "pussy", "cunt", "whore", "slut",
-        "nigger", "nigga", "faggot", "motherfucker",
+        "nigger", "nigga", "faggot", "motherfucker", "cocksucker", "jackass", "dumbass", "wanker", "tranny",
+        "retarded", "scumbag", "douchebag", "shithead", "bullshit",
         // abusive words (Hindi / Urdu in English letters)
-        "madarchod", "behenchod", "bhenchod", "bahenchod", "chutiya", "chutiye", "gandu", "gaandu", "bhosdi",
-        "bhosad", "bhosdike", "raand", "lavda", "harami", "kamina", "kutiya",
+        "madarchod", "maderchod", "mderchod", "behenchod", "behnchod", "bhenchod", "bahenchod", "chutiya", "chutiye",
+        "chutiyapa", "chutmarike", "gandu", "gaandu", "bhosdi", "bhosad", "bhosdike", "bhosdika", "bhosdiwala",
+        "bhosadi", "raand", "randwa", "randikhana", "lavda", "lawda", "harami", "haramkhor", "haramzada", "haramzadi",
+        "kamina", "kamine", "kutiya", "bhadwa", "bhadwe", "bhadva", "chinaal", "jhaatu", "jhatu", "lundfakir",
         // sexual content
-        "porn", "xnxx", "xvideos", "pornhub", "nudes", "hentai", "sexvideo", "onlyfans", "blowjob",
+        "porn", "xnxx", "xvideos", "pornhub", "nudes", "hentai", "sexvideo", "onlyfans", "blowjob", "handjob",
+        "rimjob", "cumshot", "bukkake", "gangbang", "creampie", "deepthroat", "masturbat", "orgasm", "sexchat",
+        "xhamster", "youporn", "redtube", "brazzers", "bangbros", "chaturbate", "stripchat", "camgirl", "callgirl",
+        "prostitute", "nudepic",
         // child abuse, violence, terror
-        "childporn", "kidporn", "pedophile", "paedophile", "rapist", "terrorist", "bombmaking", "killyou",
+        "childporn", "kidporn", "pedophile", "paedophile", "jailbait", "childabuse", "incest", "rapist", "terrorist",
+        "bombmaking", "killyou", "alqaeda",
         // drugs, crime, fraud
-        "cocaine", "heroin", "narcotic", "phishing", "scammer", "fakeid", "darkweb"
+        "cocaine", "heroin", "narcotic", "marijuana", "methamphetamine", "phishing", "phisher", "scammer", "fakeid",
+        "darkweb", "freerecharge", "freemoney", "moneyhack", "upihack", "bankhack", "paytmhack", "otpbypass",
+        "otpbomber", "smsbomber", "callbomber", "cardingtool", "creditcarddump"
     )
 
     /** Short or easily mistaken words: blocked only as a whole name or a whole part ("sex", "cp"), so normal names stay free. */
     private val EXACT_ONLY = setOf(
-        "sex", "sexy", "xxx", "cp", "loli", "rape", "ass", "dick", "fag", "cock", "tits", "anal", "bomb", "nude",
+        "sex", "sexy", "xxx", "cp", "csam", "loli", "rape", "ass", "dick", "fag", "cock", "tits", "anal", "bomb", "nude",
         "kill", "meth", "weed", "isis", "nazi", "scam", "fraud", "hack", "crack", "cvv", "otp", "lund", "gand",
-        "chut", "bsdk", "fuk", "randi", "lauda", "retard", "pedo", "paedo", "carding", "boobs", "jihad"
+        "chut", "bsdk", "fuk", "randi", "lauda", "retard", "pedo", "paedo", "carding", "boobs", "jihad",
+        "twat", "prick", "milf", "hooker", "escort", "chod", "chodu", "chodna", "lodu", "loda", "kutta", "kutte",
+        "saala", "sala", "tatti", "gaand", "hijda", "mdma", "lsd", "ganja", "charas", "bhosda", "bkl", "mkc"
     )
 
     private val LEET = mapOf('0' to 'o', '1' to 'i', '3' to 'e', '4' to 'a', '5' to 's', '7' to 't', '8' to 'b', '$' to 's', '@' to 'a')

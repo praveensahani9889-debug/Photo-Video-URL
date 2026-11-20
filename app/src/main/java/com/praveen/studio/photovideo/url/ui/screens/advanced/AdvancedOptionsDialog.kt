@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -61,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,6 +75,7 @@ import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.domain.repository.NameCheck
 import com.praveen.studio.photovideo.url.domain.util.LinkDraft
 import com.praveen.studio.photovideo.url.domain.util.LinkOptionsRules
+import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import com.praveen.studio.photovideo.url.domain.util.LinkSlugRules
 import com.praveen.studio.photovideo.url.ui.theme.AccentAmber
 import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
@@ -115,6 +119,14 @@ fun AdvancedOptionsDialog(
     val nameCheck by viewModel.nameCheck.collectAsState()
     val checking by viewModel.checking.collectAsState()
     var passwordVisible by remember { mutableStateOf(false) }
+    // an existing password is kept; the field only appears when the user wants to change it
+    var changePassword by remember { mutableStateOf(false) }
+
+    // a custom name that was created once is fixed (only the automatic image_xxx / video_xxx names can be replaced)
+    val slugLocked = !LinkRules.isTypedId(record.shortId)
+    // photos and videos are shown on the page: they need no "allow download" switch
+    val recordKind = record.type.ifEmpty { record.fileType }.lowercase().removeSuffix("s")
+    val showDownloadSwitch = recordKind != "image" && recordKind != "video"
 
     val blocked = AppControlStore.current.blockedWords
     // the current address of the link (editing from History) is always fine
@@ -171,10 +183,29 @@ fun AdvancedOptionsDialog(
                     // ---------------------------------------------------------------------------
                     SectionCard(title = "Link address") {
                         Text(
-                            text = "Default link: ivu.gt.tc/${record.shortId}",
+                            text = if (slugLocked) "Your link: ivu.gt.tc/${record.shortId}" else "Default link: ivu.gt.tc/${record.shortId}",
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (slugLocked) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CyanPrimary.copy(alpha = 0.10f))
+                                    .padding(10.dp)
+                            ) {
+                                Icon(Icons.Default.Lock, contentDescription = null, tint = CyanPrimary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "Your own name is fixed. It cannot be changed after it was created.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        } else {
                         Text(
                             text = "Leave the name empty to keep it. Or choose your own, for example ivu.gt.tc/my-trip",
                             style = MaterialTheme.typography.bodySmall,
@@ -220,6 +251,7 @@ fun AdvancedOptionsDialog(
                                 null -> Unit
                             }
                         }
+                        }
                     }
 
                     // ---------------------------------------------------------------------------
@@ -231,45 +263,54 @@ fun AdvancedOptionsDialog(
                         checked = draft.expiryOn,
                         onCheckedChange = { on -> viewModel.update { it.copy(expiryOn = on) } }
                     ) {
-                        val presets = LinkDraft.PRESET_LABELS
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (viewModel.currentExpiresAt > 0L) {
-                                FilterChip(
-                                    selected = draft.expiryPreset == LinkDraft.PRESET_KEEP,
-                                    onClick = { viewModel.update { it.copy(expiryPreset = LinkDraft.PRESET_KEEP) } },
-                                    label = { Text("Keep current") }
-                                )
+                        val choices = buildList<Pair<Int, String>> {
+                            if (viewModel.currentExpiresAt > 0L) add(LinkDraft.PRESET_KEEP to "Keep current")
+                            LinkDraft.PRESET_LABELS.forEachIndexed { index, label -> add(index to label) }
+                        }
+                        choices.chunked(2).forEach { rowItems ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowItems.forEach { (presetId, label) ->
+                                    ChoiceButton(
+                                        label = label,
+                                        selected = draft.expiryPreset == presetId,
+                                        onClick = { viewModel.update { it.copy(expiryPreset = presetId) } },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
                             }
-                            presets.forEachIndexed { index, label ->
-                                FilterChip(
-                                    selected = draft.expiryPreset == index,
-                                    onClick = { viewModel.update { it.copy(expiryPreset = index) } },
-                                    label = { Text(label) }
-                                )
-                            }
+                            Spacer(Modifier.height(8.dp))
                         }
                         if (draft.expiryPreset == LinkDraft.PRESET_CUSTOM) {
+                            Text(
+                                text = "The link works for",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = draft.customAmount,
+                                onValueChange = { v -> viewModel.update { it.copy(customAmount = v.filter(Char::isDigit).take(6)) } },
+                                label = { Text("Amount (a number)") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            )
                             Spacer(Modifier.height(8.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = draft.customAmount,
-                                    onValueChange = { v -> viewModel.update { it.copy(customAmount = v.filter(Char::isDigit).take(6)) } },
-                                    label = { Text("Amount") },
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.width(120.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 listOf("Minutes", "Hours", "Days").forEachIndexed { index, label ->
-                                    FilterChip(
+                                    ChoiceButton(
+                                        label = label,
                                         selected = draft.customUnit == index,
                                         onClick = { viewModel.update { it.copy(customUnit = index) } },
-                                        label = { Text(label) },
-                                        modifier = Modifier.padding(end = 4.dp)
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
                             }
@@ -301,28 +342,61 @@ fun AdvancedOptionsDialog(
                         checked = draft.passwordOn,
                         onCheckedChange = { on -> viewModel.update { it.copy(passwordOn = on) } }
                     ) {
-                        OutlinedTextField(
-                            value = draft.password,
-                            onValueChange = { v -> viewModel.update { it.copy(password = v.take(LinkOptionsRules.MAX_PASSWORD)) } },
-                            label = {
-                                Text(if (viewModel.hasExistingPassword) "New password (empty = keep current)" else "Password")
-                            },
-                            singleLine = true,
-                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(
-                                        imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = "Show or hide the password"
+                        if (viewModel.hasExistingPassword && !changePassword) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(AccentEmerald.copy(alpha = 0.12f))
+                                    .padding(start = 10.dp, top = 4.dp, bottom = 4.dp, end = 4.dp)
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AccentEmerald, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "A password is already set. It stays the same.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(onClick = { changePassword = true }) { Text("Change") }
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = draft.password,
+                                onValueChange = { v -> viewModel.update { it.copy(password = v.take(LinkOptionsRules.MAX_PASSWORD)) } },
+                                label = { Text(if (viewModel.hasExistingPassword) "New password" else "Password") },
+                                singleLine = true,
+                                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                        Icon(
+                                            imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = "Show or hide the password"
+                                        )
+                                    }
+                                },
+                                supportingText = {
+                                    Text(
+                                        if (viewModel.hasExistingPassword) {
+                                            "Type a new password, or tap \"Keep current\"."
+                                        } else {
+                                            "${LinkOptionsRules.MIN_PASSWORD}-${LinkOptionsRules.MAX_PASSWORD} characters. Only a hash is saved, never the password."
+                                        }
                                     )
-                                }
-                            },
-                            supportingText = { Text("${LinkOptionsRules.MIN_PASSWORD}-${LinkOptionsRules.MAX_PASSWORD} characters. Only a hash is saved, never the password.") },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("advanced_password_input")
-                        )
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("advanced_password_input")
+                            )
+                            if (viewModel.hasExistingPassword) {
+                                TextButton(onClick = {
+                                    changePassword = false
+                                    viewModel.update { it.copy(password = "") }
+                                }) { Text("Keep current password") }
+                            }
+                        }
                     }
 
                     // ---------------------------------------------------------------------------
@@ -414,6 +488,7 @@ fun AdvancedOptionsDialog(
                     // 7. More
                     // ---------------------------------------------------------------------------
                     SectionCard(title = "More") {
+                        if (showDownloadSwitch) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Allow download", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
@@ -429,6 +504,7 @@ fun AdvancedOptionsDialog(
                             )
                         }
                         Spacer(Modifier.height(10.dp))
+                        }
                         OutlinedTextField(
                             value = draft.pageTitle,
                             onValueChange = { v -> viewModel.update { it.copy(pageTitle = v.take(LinkOptionsRules.MAX_TITLE)) } },
@@ -585,11 +661,10 @@ private fun OptionCard(
 /** Colour circles + a field for a #RRGGBB value, with a preview. */
 @Composable
 private fun ColorPicker(hex: String, onChange: (String) -> Unit) {
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        SwatchColors.forEach { swatch ->
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      SwatchColors.chunked(6).forEach { rowColors ->
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        rowColors.forEach { swatch ->
             val color = parseColor(swatch) ?: Color.Gray
             val selected = swatch.equals(hex.trim(), ignoreCase = true)
             Box(
@@ -604,6 +679,8 @@ private fun ColorPicker(hex: String, onChange: (String) -> Unit) {
                     .clickable { onChange(swatch) }
             )
         }
+        }
+      }
     }
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -623,6 +700,32 @@ private fun ColorPicker(hex: String, onChange: (String) -> Unit) {
             isError = !LinkOptionsRules.isHexColor(hex),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+/** A big, easy to tap choice (used for the expiry time): the chosen one has a coloured frame. */
+@Composable
+private fun ChoiceButton(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    val frame = if (selected) CyanPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+    Box(
+        modifier = modifier
+            .heightIn(min = 46.dp)
+            .clip(shape)
+            .background(if (selected) CyanPrimary.copy(alpha = 0.16f) else Color.Transparent)
+            .border(BorderStroke(if (selected) 2.dp else 1.dp, frame), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal),
+            color = if (selected) CyanPrimary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
         )
     }
 }

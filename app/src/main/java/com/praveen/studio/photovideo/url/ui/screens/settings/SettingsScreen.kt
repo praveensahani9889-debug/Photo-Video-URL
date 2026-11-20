@@ -63,6 +63,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.core.app.NotificationManagerCompat
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.Switch
+import com.praveen.studio.photovideo.url.AppNotifications
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -619,6 +625,23 @@ fun SettingsScreen(
                     notificationLifecycle.lifecycle.addObserver(observer)
                     onDispose { notificationLifecycle.lifecycle.removeObserver(observer) }
                 }
+                // direct on / off switch of the messages (on = allowed by the phone AND switched on here)
+                var messagesOn by remember { mutableStateOf(AppNotifications.isMessagesEnabled(context)) }
+                val openNotificationSettings = {
+                    try {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        )
+                    } catch (_: Exception) {
+                    }
+                }
+                val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+                    notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                    // refused (or refused for good): the phone settings are the only place left to allow it
+                    if (!notificationsOn) openNotificationSettings()
+                }
+                val switchChecked = messagesOn && notificationsOn
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -626,21 +649,45 @@ fun SettingsScreen(
                     border = CardDefaults.outlinedCardBorder()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "Notifications",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = if (notificationsOn) {
-                                "Messages are allowed. They arrive also when the app is closed."
-                            } else {
-                                "Notifications are turned off for this app, so messages cannot be shown."
+                            text = when {
+                                switchChecked -> "On. Messages arrive also when the app is closed."
+                                !messagesOn -> "Off. You get no messages from this app."
+                                else -> "Notifications are blocked for this app in the phone settings. Turn the switch on to allow them."
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (notificationsOn) MaterialTheme.colorScheme.onSurfaceVariant else AccentRose
+                            color = if (messagesOn && !notificationsOn) AccentRose else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                            }
+                            Switch(
+                                checked = switchChecked,
+                                onCheckedChange = { on ->
+                                    if (on) {
+                                        AppNotifications.setMessagesEnabled(context, true)
+                                        messagesOn = true
+                                        if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+                                            notificationsOn = true
+                                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        } else {
+                                            openNotificationSettings()
+                                        }
+                                    } else {
+                                        AppNotifications.setMessagesEnabled(context, false)
+                                        messagesOn = false
+                                    }
+                                },
+                                modifier = Modifier.testTag("settings_notifications_switch")
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = {

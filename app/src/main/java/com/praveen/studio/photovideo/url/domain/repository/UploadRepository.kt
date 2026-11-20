@@ -201,28 +201,42 @@ class UploadRepository(
 
         var uploadResult = uploadTo(activeConfig)
 
-        // Supabase says "storage full": mark that project, switch to the next one that has room (a notification is
-        // shown) and upload the same file there - the user does not have to do anything.
-        var switches = 0
-        val maxSwitches = SupabaseAccountManager.list(context).size
-        while (uploadResult.isFailure && !item.isTrial && switches < maxSwitches) {
+        // When an upload fails, the same file is tried again on its own: one quick retry on the same Supabase, then on
+        // the other saved Supabase projects one after the other. "Storage full" also marks the project as full and
+        // tells the user. Only when every project failed, the error is shown.
+        val triedIds = HashSet<String>()
+        activeAccount?.let { triedIds.add(it.id) }
+        val failures = ArrayList<String>()
+        var retriedSame = false
+        while (uploadResult.isFailure && !item.isTrial) {
             val message = uploadResult.exceptionOrNull()?.message.orEmpty()
-            if (!message.startsWith(SupabaseStorageClient.STORAGE_FULL_PREFIX)) break
+            // a file that is too big fails everywhere in the same way
+            if (message.startsWith(SupabaseStorageClient.TOO_LARGE_PREFIX)) break
             val current = activeAccount ?: break
-            val next = SupabaseAccountManager.markFullAndPickNext(context, current.id, item.sizeBytes)
-            if (next == null) {
-                send(
-                    UploadStatus.Failed(
-                        item.name,
-                        "All your Supabase storages are full. Add another Supabase in Settings or delete some uploads.",
-                        retryable = false
-                    )
-                )
-                return@channelFlow
+            val full = message.startsWith(SupabaseStorageClient.STORAGE_FULL_PREFIX)
+
+            if (!full && !retriedSame) {
+                // maybe only the connection hiccuped: once more on the same project
+                retriedSame = true
+                delay(1500L)
+                send(UploadStatus.Preparing(item.name))
+                uploadResult = uploadTo(activeConfig)
+                continue
             }
+
+            failures.add("${current.displayName}: ${message.ifBlank { "upload failed" }}")
+            val others = SupabaseAccountManager.list(context).filter { it.isUsable && !it.full && it.id !in triedIds }
+            val next: SupabaseAccount? = if (full) {
+                SupabaseAccountManager.markFullAndPickNext(context, current.id, item.sizeBytes)
+                    ?.takeIf { it.id !in triedIds }
+                    ?: SupabaseAccountManager.list(context).firstOrNull { it.isUsable && !it.full && it.id !in triedIds }
+            } else {
+                others.firstOrNull()
+            }
+            if (next == null) break
+            triedIds.add(next.id)
             activeAccount = next
             activeConfig = next.config
-            switches++
             send(UploadStatus.Preparing(item.name))
             uploadResult = uploadTo(activeConfig)
         }
@@ -231,7 +245,15 @@ class UploadRepository(
             val err = uploadResult.exceptionOrNull()?.message ?: "Supabase upload failed"
             // A "too large" error can never succeed on retry
             val retryable = !err.startsWith(SupabaseStorageClient.TOO_LARGE_PREFIX)
-            send(UploadStatus.Failed(item.name, err, retryable = retryable))
+            val allFull = !item.isTrial && err.startsWith(SupabaseStorageClient.STORAGE_FULL_PREFIX) &&
+                SupabaseAccountManager.list(context).none { it.isUsable && !it.full }
+            val finalMessage = when {
+                allFull -> "All your Supabase storages are full. Add another Supabase in Settings or delete some uploads."
+                failures.size > 1 -> "The upload failed on all ${failures.size} Supabase projects. " +
+                    failures.joinToString("  |  ") + ". Check the keys and your internet in Settings."
+                else -> err
+            }
+            send(UploadStatus.Failed(item.name, finalMessage, retryable = retryable && !allFull))
             return@channelFlow
         }
 

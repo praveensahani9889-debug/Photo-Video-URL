@@ -59,6 +59,18 @@ data class SupabaseAccount(
     val isFullOrNearly: Boolean
         get() = full || usedBytes >= capacityBytes / 100L * 98L
 
+    /**
+     * One Supabase project is ONE entry: the same project URL (or the same anon key) cannot be added a second time,
+     * whatever the name or the bucket is. To use another bucket of the project, edit the entry.
+     */
+    fun isDuplicateOf(other: SupabaseAccount): Boolean {
+        if (id == other.id) return false
+        val sameHost = host.isNotBlank() && host.equals(other.host, ignoreCase = true)
+        val key = anonKey.trim()
+        val sameKey = key.isNotEmpty() && key == other.anonKey.trim()
+        return sameHost || sameKey
+    }
+
     fun sameProject(other: SupabaseAccount): Boolean =
         host.equals(other.host, ignoreCase = true) && bucketName.trim().equals(other.bucketName.trim(), ignoreCase = true)
 

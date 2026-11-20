@@ -1,10 +1,16 @@
 package com.praveen.studio.photovideo.url.ui.screens.search
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -20,6 +26,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -32,11 +39,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashlightOff
 import androidx.compose.material.icons.filled.FlashlightOn
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -109,6 +118,30 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
         hasPermission = cameraGranted()
     }
 
+    // QR code from a picture of the gallery (no permission needed: the system picker hands over the one picture)
+    var reading by remember { mutableStateOf(false) }
+    val latestResult by rememberUpdatedState(onResult)
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            reading = true
+            readQrFromPicture(context, uri) { text ->
+                reading = false
+                if (text != null) {
+                    latestResult(text)
+                } else {
+                    Toast.makeText(context, "No QR code was found in this picture.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+    val pickFromGallery: () -> Unit = {
+        try {
+            galleryLauncher.launch("image/*")
+        } catch (_: Exception) {
+            Toast.makeText(context, "No gallery app was found.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // the permission question appears as soon as the scanner opens
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -125,10 +158,17 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
             color = Color.Black
         ) {
             if (hasPermission) {
-                ScannerContent(onResult = onResult, onClose = onDismiss)
+                ScannerContent(
+                    onResult = onResult,
+                    onClose = onDismiss,
+                    onPickGallery = pickFromGallery,
+                    reading = reading
+                )
             } else {
                 CameraPermissionContent(
                     deniedBefore = asked,
+                    onPickGallery = pickFromGallery,
+                    reading = reading,
                     onAllow = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                     onOpenSettings = {
                         try {
@@ -148,6 +188,8 @@ fun QrScannerDialog(onResult: (String) -> Unit, onDismiss: () -> Unit) {
 @Composable
 private fun CameraPermissionContent(
     deniedBefore: Boolean,
+    onPickGallery: () -> Unit,
+    reading: Boolean,
     onAllow: () -> Unit,
     onOpenSettings: () -> Unit,
     onClose: () -> Unit
@@ -198,13 +240,31 @@ private fun CameraPermissionContent(
         ) {
             Text(if (deniedBefore) "Open app settings" else "Allow camera")
         }
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = onPickGallery,
+            enabled = !reading,
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("qr_gallery_permission_screen")
+        ) {
+            Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(if (reading) "Reading the picture..." else "Choose a QR picture from the gallery", color = Color.White)
+        }
+        Spacer(modifier = Modifier.height(4.dp))
         TextButton(onClick = onClose) { Text("Cancel", color = Color.White) }
     }
 }
 
 @Composable
-private fun ScannerContent(onResult: (String) -> Unit, onClose: () -> Unit) {
+private fun ScannerContent(
+    onResult: (String) -> Unit,
+    onClose: () -> Unit,
+    onPickGallery: () -> Unit,
+    reading: Boolean
+) {
     val haptic = LocalHapticFeedback.current
     val latestOnResult by rememberUpdatedState(onResult)
     var torchOn by remember { mutableStateOf(false) }
@@ -258,26 +318,54 @@ private fun ScannerContent(onResult: (String) -> Unit, onClose: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "Point the camera at a QR code",
+                text = if (reading) "Reading the picture..." else "Point the camera at a QR code, or choose one from the gallery",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color.White.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center
             )
-            if (hasTorch) {
-                Spacer(modifier = Modifier.height(18.dp))
-                IconButton(
-                    onClick = { torchOn = !torchOn },
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(CircleShape)
-                        .background(if (torchOn) CyanPrimary else Color.White.copy(alpha = 0.18f))
-                        .testTag("qr_torch")
-                ) {
-                    Icon(
-                        imageVector = if (torchOn) Icons.Default.FlashlightOn else Icons.Default.FlashlightOff,
-                        contentDescription = if (torchOn) "Turn the light off" else "Turn the light on",
-                        tint = Color.White
-                    )
+            Spacer(modifier = Modifier.height(18.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(36.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(
+                        onClick = onPickGallery,
+                        enabled = !reading,
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.18f))
+                            .testTag("qr_gallery")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoLibrary,
+                            contentDescription = "Choose a QR picture from the gallery",
+                            tint = Color.White
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Gallery", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
+                }
+                if (hasTorch) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        IconButton(
+                            onClick = { torchOn = !torchOn },
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(if (torchOn) CyanPrimary else Color.White.copy(alpha = 0.18f))
+                                .testTag("qr_torch")
+                        ) {
+                            Icon(
+                                imageVector = if (torchOn) Icons.Default.FlashlightOn else Icons.Default.FlashlightOff,
+                                contentDescription = if (torchOn) "Turn the light off" else "Turn the light on",
+                                tint = Color.White
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Light", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
+                    }
                 }
             }
         }
@@ -460,4 +548,47 @@ private class QrAnalyzer(private val onFound: (String) -> Unit) : ImageAnalysis.
         } catch (_: Exception) {
         }
     }
+}
+
+/**
+ * Reads the QR code of a picture from the gallery (ML Kit, on the phone). The picture is made smaller first, so even a
+ * big photo does not use much memory. [onDone] always runs on the main thread: the text, or null when there is no code.
+ */
+private fun readQrFromPicture(context: Context, uri: Uri, onDone: (String?) -> Unit) {
+    val main = Handler(Looper.getMainLooper())
+    fun finish(text: String?) {
+        main.post { onDone(text) }
+    }
+    Thread {
+        var bitmap: Bitmap? = null
+        try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (bounds.outWidth / sample > 2200 || bounds.outHeight / sample > 2200) sample *= 2
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            bitmap = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            val picture = bitmap
+            if (picture == null) {
+                finish(null)
+                return@Thread
+            }
+            val scanner = BarcodeScanning.getClient(
+                BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+            )
+            scanner.process(InputImage.fromBitmap(picture, 0))
+                .addOnSuccessListener { barcodes ->
+                    finish(barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue)
+                }
+                .addOnFailureListener { finish(null) }
+                .addOnCompleteListener {
+                    try {
+                        scanner.close()
+                    } catch (_: Exception) {
+                    }
+                }
+        } catch (_: Throwable) {
+            finish(null)
+        }
+    }.start()
 }

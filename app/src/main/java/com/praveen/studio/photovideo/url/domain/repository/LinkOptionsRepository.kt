@@ -11,6 +11,7 @@ import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
 import com.praveen.studio.photovideo.url.data.remote.HistoryRemoteStore
 import com.praveen.studio.photovideo.url.domain.util.LinkDraft
 import com.praveen.studio.photovideo.url.domain.util.LinkDraftMapper
+import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import com.praveen.studio.photovideo.url.domain.util.LinkSlugRules
 
 /** Result of "Check availability" for a custom address. */
@@ -60,6 +61,11 @@ class LinkOptionsRepository(
     suspend fun apply(record: UploadRecord, draft: LinkDraft, existing: LinkOptions): Result<UploadRecord> {
         val typed = LinkSlugRules.normalize(draft.slug)
         val newSlug = if (typed.isEmpty()) record.shortId else typed
+
+        // a name that the user chose once stays as it is (only the automatic image_xxx / video_xxx names can be replaced)
+        if (newSlug != record.shortId && !LinkRules.isTypedId(record.shortId)) {
+            return Result.failure(IllegalArgumentException("A custom name cannot be changed after it was created."))
+        }
 
         if (newSlug != record.shortId) {
             LinkSlugRules.problem(newSlug, AppControlStore.current.blockedWords)?.let {
