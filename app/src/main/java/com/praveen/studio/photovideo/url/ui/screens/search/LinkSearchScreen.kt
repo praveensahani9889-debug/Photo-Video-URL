@@ -94,7 +94,6 @@ import com.praveen.studio.photovideo.url.data.remote.FoundKind
 import com.praveen.studio.photovideo.url.domain.util.DownloadHelper
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 import com.praveen.studio.photovideo.url.ui.theme.GradientButton
-import com.praveen.studio.photovideo.url.ui.theme.softEnter
 
 /**
  * "Search & Download": paste a link, see the photo / video / document and save it to the phone.
@@ -390,7 +389,7 @@ private fun HelpCard() {
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-        modifier = Modifier.fillMaxWidth().softEnter()
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -422,7 +421,7 @@ private fun MessageCard(text: String, openUrl: String?) {
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
-        modifier = Modifier.fillMaxWidth().softEnter()
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
@@ -458,7 +457,6 @@ private fun ScannedLinkCard(text: String, url: String?) {
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
             .fillMaxWidth()
-            .softEnter()
             .testTag("search_scanned_link")
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -516,7 +514,6 @@ private fun WebsiteCard(title: String, text: String, url: String) {
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
             .fillMaxWidth()
-            .softEnter()
             .testTag("search_website")
     ) {
         Column {
@@ -574,7 +571,6 @@ private fun ResultCard(item: FoundItem, onDownload: () -> Unit) {
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         modifier = Modifier
             .fillMaxWidth()
-            .softEnter()
             .testTag("search_result")
     ) {
         Column(modifier = Modifier.padding(14.dp)) {

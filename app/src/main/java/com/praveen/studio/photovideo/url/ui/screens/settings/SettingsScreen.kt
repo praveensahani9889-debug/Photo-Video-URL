@@ -180,6 +180,8 @@ fun SettingsScreen(
 
     // Automatic: opening Settings saves the readable list of the uploads (name, link, date) in the Downloads folder
     LaunchedEffect(Unit) {
+        // wait until the tab animation is finished, so opening Settings stays smooth
+        kotlinx.coroutines.delay(400L)
         withContext(Dispatchers.IO) {
             try {
                 val local = try {

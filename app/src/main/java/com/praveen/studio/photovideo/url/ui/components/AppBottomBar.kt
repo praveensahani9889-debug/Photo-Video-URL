@@ -27,12 +27,14 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.praveen.studio.photovideo.url.ui.theme.BrandIndigo
 import com.praveen.studio.photovideo.url.ui.theme.BrandViolet
+import com.praveen.studio.photovideo.url.ui.theme.CyanPrimaryLight
 
 /** The four places of the app. The names HOME / HISTORY / SETTINGS are the same as in the main screen. */
 enum class NavTab(val title: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector) {
@@ -80,6 +82,8 @@ fun AppBottomBar(
 @Composable
 private fun RowScope.BarItem(tab: NavTab, isSelected: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val isDark = scheme.background.luminance() < 0.5f
+    val selectedColor = if (isDark) CyanPrimaryLight else scheme.primary
     // minor animation: the selected icon grows a little, with a soft spring
     val iconScale by animateFloatAsState(
         targetValue = if (isSelected) 1.14f else 1f,
@@ -108,9 +112,9 @@ private fun RowScope.BarItem(tab: NavTab, isSelected: Boolean, onClick: () -> Un
             )
         },
         colors = NavigationBarItemDefaults.colors(
-            indicatorColor = scheme.primary.copy(alpha = 0.16f),
-            selectedIconColor = scheme.primary,
-            selectedTextColor = scheme.primary,
+            indicatorColor = scheme.primary.copy(alpha = if (isDark) 0.28f else 0.14f),
+            selectedIconColor = selectedColor,
+            selectedTextColor = selectedColor,
             unselectedIconColor = scheme.onSurfaceVariant,
             unselectedTextColor = scheme.onSurfaceVariant
         ),

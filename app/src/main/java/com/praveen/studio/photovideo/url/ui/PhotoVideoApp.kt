@@ -18,7 +18,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -252,9 +255,12 @@ fun PhotoVideoApp() {
                     // the keyboard pushes the content up (the bar stays under the keyboard, nothing jumps)
                     .imePadding()
             ) {
-                Crossfade(
+                // ONE calm transition for all four tabs: the new tab fades in, the old tab is removed at once.
+                // (The old Crossfade kept BOTH screens on the screen for a moment, so heavy tabs like Search and
+                // Settings stuttered and looked different from Upload / History.)
+                AnimatedContent(
                     targetState = currentScreen,
-                    animationSpec = tween(durationMillis = 220),
+                    transitionSpec = { fadeIn(tween(durationMillis = 180)) togetherWith ExitTransition.None },
                     label = "ScreenTransition"
                 ) { screen ->
                     when (screen) {

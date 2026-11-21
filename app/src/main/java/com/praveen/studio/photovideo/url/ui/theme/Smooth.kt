@@ -51,23 +51,23 @@ import androidx.compose.ui.unit.dp
 fun Modifier.appBackdrop(): Modifier {
     val base = MaterialTheme.colorScheme.background
     val isDark = base.luminance() < 0.5f
-    val top = if (isDark) lerp(base, BrandIndigo, 0.07f) else lerp(base, Color.White, 0.65f)
-    val glowSky = BrandSky.copy(alpha = if (isDark) 0.11f else 0.10f)
-    val glowViolet = BrandViolet.copy(alpha = if (isDark) 0.10f else 0.08f)
+    val top = if (isDark) lerp(base, BrandIndigo, 0.07f) else lerp(base, Color.White, 0.8f)
+    val glowSky = BrandSky.copy(alpha = if (isDark) 0.10f else 0.07f)
+    val glowViolet = BrandViolet.copy(alpha = if (isDark) 0.09f else 0.06f)
     return this.drawBehind {
         drawRect(Brush.verticalGradient(listOf(top, base)))
         drawRect(
             Brush.radialGradient(
                 colors = listOf(glowSky, Color.Transparent),
                 center = Offset(0f, 0f),
-                radius = size.maxDimension * 0.75f
+                radius = size.maxDimension * 0.6f
             )
         )
         drawRect(
             Brush.radialGradient(
                 colors = listOf(glowViolet, Color.Transparent),
                 center = Offset(size.width, size.height),
-                radius = size.maxDimension * 0.75f
+                radius = size.maxDimension * 0.6f
             )
         )
     }
