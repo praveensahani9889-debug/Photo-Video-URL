@@ -36,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
+import com.praveen.studio.photovideo.url.ui.theme.CategoryApks
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 
 @Composable
@@ -65,13 +67,13 @@ fun ApkOptionDialog(
                     modifier = Modifier
                         .size(54.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF8B5CF6).copy(alpha = 0.15f)),
+                        .background(CategoryApks.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Android,
                         contentDescription = "APK Options",
-                        tint = Color(0xFF8B5CF6),
+                        tint = CategoryApks,
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -115,7 +117,7 @@ fun ApkOptionDialog(
                 // Option 2: Extract installed app APK
                 ApkActionCard(
                     icon = Icons.Default.Android,
-                    iconColor = Color(0xFF10B981),
+                    iconColor = AccentEmerald,
                     title = "Extract Installed App APK",
                     subtitle = "Choose from apps on your phone. Saves APK to Downloads folder and uploads it",
                     onClick = {

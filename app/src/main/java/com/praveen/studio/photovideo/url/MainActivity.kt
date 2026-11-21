@@ -9,10 +9,33 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
 import com.praveen.studio.photovideo.url.ui.PhotoVideoApp
+import com.praveen.studio.photovideo.url.ui.navigation.TabRequests
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        /** Which tab (HOME, HISTORY, SEARCH, SETTINGS) opens. */
+        const val EXTRA_START_TAB = "start_tab"
+
+        /** Set by the Quick Settings tile: the Search tab opens and the QR scanner starts at once. */
+        const val EXTRA_OPEN_SCANNER = "open_scanner"
+    }
+
+    private fun rememberTabRequest(intent: Intent?, allowScanner: Boolean = true) {
+        intent?.getStringExtra(EXTRA_START_TAB)?.let { TabRequests.pending.value = it }
+        if (intent?.getBooleanExtra(EXTRA_OPEN_SCANNER, false) == true) {
+            // used once: not again after a recreation or when the app is reopened from the recent apps list
+            intent?.removeExtra(EXTRA_OPEN_SCANNER)
+            if (allowScanner) {
+                TabRequests.pending.value = "SEARCH"
+                TabRequests.openScanner.value = true
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val launchedFromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        rememberTabRequest(intent, allowScanner = savedInstanceState == null && !launchedFromHistory)
 
         // Native transparent edge-to-edge was introduced in Android 10 (API 29).
         // On Android 9 (API 28), guard against decor view crashes across OEM forks.
@@ -27,7 +50,6 @@ class MainActivity : ComponentActivity() {
         // Handle the launch intent only once. After a recreation (theme change, process restore) or when
         // the app is reopened from the recent apps list the same intent is delivered again, which would
         // re-open a viewer / share dialog the user already closed (and could upload the files twice).
-        val launchedFromHistory = (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
         if (savedInstanceState == null && !launchedFromHistory) {
             try {
                 IncomingIntentManager.handleIntent(this, intent)
@@ -44,6 +66,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        rememberTabRequest(intent)
         try {
             IncomingIntentManager.handleIntent(this, intent)
         } catch (t: Throwable) {

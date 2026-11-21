@@ -169,7 +169,7 @@ class FirebaseDatabaseManager {
                             "termsUrl" to "https://ivu.gt.tc/terms",
                             "privacyUrl" to "https://ivu.gt.tc/privacy",
                             "domain" to "https://ivu.gt.tc",
-                            "version" to "2.9.1"
+                            "version" to "2.10.0"
                         )
                     ).await()
                 }

@@ -173,6 +173,7 @@ fun HistoryScreen(
                 )
             )
         },
+        containerColor = Color.Transparent,
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
         Column(

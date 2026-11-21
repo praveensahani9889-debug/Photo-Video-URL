@@ -42,7 +42,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.praveen.studio.photovideo.url.data.model.IncomingSharedMedia
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
+import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
+import com.praveen.studio.photovideo.url.ui.theme.onAccent
 
 @Composable
 fun SharedUploadDialog(
@@ -220,7 +222,7 @@ fun SharedUploadDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("btn_shared_free_trial"),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                            colors = ButtonDefaults.buttonColors(containerColor = AccentEmerald, contentColor = onAccent(AccentEmerald))
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CloudUpload,

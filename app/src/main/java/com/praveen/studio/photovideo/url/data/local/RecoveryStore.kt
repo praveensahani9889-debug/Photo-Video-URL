@@ -1,6 +1,7 @@
 package com.praveen.studio.photovideo.url.data.local
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
@@ -341,11 +342,14 @@ object RecoveryStore {
     // Readable list for the user (Downloads folder)
     // ---------------------------------------------------------------------------------------------
 
+    private const val EXPORT_NAME = "Photo-Video-URL-uploads.txt"
+    private const val STATE_PREFS = "safe_copy_state"
+    private const val KEY_EXPORT_HASH = "export_hash"
+
+    /** The readable list (only name, link and date of every upload). */
     fun readableText(entries: List<VaultEntry>): String {
-        val now = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
         val text = StringBuilder()
         text.append("Photo Video URL - my uploads\n")
-        text.append("Saved on: ").append(now).append('\n')
         text.append("Total: ").append(entries.size).append("\n\n")
         entries.forEachIndexed { index, e ->
             text.append(index + 1).append(". Name: ").append(e.name).append('\n')
@@ -355,37 +359,76 @@ object RecoveryStore {
         return text.toString()
     }
 
-    /**
-     * Saves the readable list as a text file in the Downloads folder. Android 10+ needs no permission; on Android 9
-     * the storage permission is needed (the caller asks for it first). Returns the file name.
-     */
-    fun exportReadable(context: Context, entries: List<VaultEntry>): Result<String> {
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    /** The Downloads entry of an earlier export (Android 10+), or null. */
+    private fun findExportUri(context: Context): android.net.Uri? {
         return try {
-            val stamp = SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.US).format(Date())
-            val fileName = "Photo-Video-URL-uploads-$stamp.txt"
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            context.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.Downloads._ID),
+                "${MediaStore.Downloads.DISPLAY_NAME}=? AND ${MediaStore.Downloads.RELATIVE_PATH} LIKE ?",
+                arrayOf(EXPORT_NAME, "${Environment.DIRECTORY_DOWNLOADS}%"),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Saves the readable list as ONE text file in the Downloads folder and keeps it up to date (it is replaced, not
+     * duplicated, and nothing is written when the list did not change). Android 10+ needs no permission; on Android 9
+     * the storage permission is needed. Returns the file name.
+     */
+    fun exportReadableAuto(context: Context, entries: List<VaultEntry>): Result<String> {
+        return try {
             val bytes = readableText(entries).toByteArray(Charsets.UTF_8)
+            val hash = sha256(bytes)
+            val prefs = context.applicationContext.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+            val unchanged = prefs.getString(KEY_EXPORT_HASH, "") == hash
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val resolver = context.contentResolver
-                val values = ContentValues().apply {
-                    put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(MediaStore.Downloads.MIME_TYPE, "text/plain")
-                    put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
-                    put(MediaStore.Downloads.IS_PENDING, 1)
+                val existing = findExportUri(context)
+                if (existing != null && unchanged) return Result.success(EXPORT_NAME)
+                var written = false
+                if (existing != null) {
+                    written = try {
+                        resolver.openOutputStream(existing, "wt")?.use { it.write(bytes) } != null
+                    } catch (_: Throwable) {
+                        false
+                    }
                 }
-                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                    ?: return Result.failure(IllegalStateException("The Downloads folder is not available."))
-                resolver.openOutputStream(uri)?.use { it.write(bytes) }
-                    ?: return Result.failure(IllegalStateException("The file could not be written."))
-                values.clear()
-                values.put(MediaStore.Downloads.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
+                if (!written) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Downloads.DISPLAY_NAME, EXPORT_NAME)
+                        put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                        put(MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                        ?: return Result.failure(IllegalStateException("The Downloads folder is not available."))
+                    resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                        ?: return Result.failure(IllegalStateException("The file could not be written."))
+                    values.clear()
+                    values.put(MediaStore.Downloads.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                }
             } else {
                 @Suppress("DEPRECATION")
                 val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 if (!downloads.exists()) downloads.mkdirs()
-                File(downloads, fileName).writeBytes(bytes)
+                val file = File(downloads, EXPORT_NAME)
+                if (file.exists() && unchanged) return Result.success(EXPORT_NAME)
+                file.writeBytes(bytes)
             }
-            Result.success(fileName)
+            prefs.edit().putString(KEY_EXPORT_HASH, hash).apply()
+            Result.success(EXPORT_NAME)
         } catch (t: Throwable) {
             Result.failure(t)
         }

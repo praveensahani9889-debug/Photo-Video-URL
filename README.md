@@ -369,6 +369,20 @@ or uploaded.
 **Downloads from the viewer:** Download (APK, files, PDF) saves the file straight into `Downloads` with a notification,
 it no longer opens the browser / Supabase page.
 
+## 🆕 Version 2.10.0 — new smooth theme, automatic safe copy, bottom bar in Search
+
+* **New theme:** a calm navy night / soft lavender day with the blue-to-violet of the app icon, softer accent colours,
+  rounder corners (cards, dialogs, chips) and matching surface layers for dialogs, menus and sheets.
+* **Settings:** the *Safe copy* card is gone, it is automatic now: the encrypted account file is kept up to date by the app,
+  the storage is asked for once by itself, and every time Settings opens the readable list of the uploads (name, URL, date)
+  is saved / updated as `Photo-Video-URL-uploads.txt` in Downloads. The *Notifications* card is only shown while
+  notifications are NOT allowed; once they are on, it disappears.
+* **Search:** the same bottom bar as the main screen (Upload, History, Search, Settings).
+* **Demo:** the very first free demo photo shows no ad and offers the Advanced options page; from the second one on the ad
+  shows as before.
+* **Link address:** it can be chosen only on the options page right after the upload. When that page is skipped (or later
+  from History) the address stays as it is, and a custom name can never be changed.
+
 ## 🆕 Version 2.9.1 — safe copy of the account, upload list, QR link, Home logo
 
 * **Safe copy on the phone:** the folder `/storage/emulated/0/Photo video URL/` (inside: hidden, dotted folders) holds
@@ -470,7 +484,7 @@ app is opened next. The *view limit* only blocks the link; it does not delete th
 
 ### Version numbers (how the next versions are counted)
 `X.Y.Z`: **X** = big upload (2 → 3), **Y** = new features (7 → 8), **Z** = bug fix (0 → 1).
-`versionCode` = `X*100 + Y*10 + Z` (2.9.1 = 291). Change both in `app/build.gradle.kts`, the version in the
+`versionCode` = `X*100 + Y*10 + Z` (2.10.0 = 300). Change both in `app/build.gradle.kts`, the version in the
 workflow file (`android-ci.yml`) and the `version` default in `FirebaseDatabaseManager.kt`.
 
 ### Firebase switches (app/backend, no app update needed)
@@ -585,7 +599,7 @@ Tap **Copy report** and send it to the developer. (This screen runs in its own p
 when the normal app cannot start.)
 
 ## 📦 APK file (GitHub Releases)
-* `PhotoVideoURL-v2.9.1.apk` – the only APK that is published.
+* `PhotoVideoURL-v2.10.0.apk` – the only APK that is published.
 
 ---
 

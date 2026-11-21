@@ -46,6 +46,10 @@ class AdvancedOptionsViewModel(application: Application) : AndroidViewModel(appl
 
     val currentExpiresAt: Long get() = existing.expiresAt
 
+    /** True only on the page that opens right after the upload: later the link address is fixed. */
+    var canRename: Boolean = true
+        private set
+
     /**
      * Opens the page for [rec]. For a link that was just created everything starts switched off.
      * With [loadExisting] (changing a link from History) the saved options are read once and shown.
@@ -53,6 +57,7 @@ class AdvancedOptionsViewModel(application: Application) : AndroidViewModel(appl
     fun start(rec: UploadRecord, loadExisting: Boolean) {
         record = rec
         existing = rec.options
+        canRename = !loadExisting
         _error.value = null
         _nameCheck.value = null
         _saving.value = false
@@ -106,7 +111,7 @@ class AdvancedOptionsViewModel(application: Application) : AndroidViewModel(appl
             _saving.value = true
             _error.value = null
             try {
-                repository.apply(rec, _draft.value, existing).fold(
+                repository.apply(rec, _draft.value, existing, canRename).fold(
                     onSuccess = { onDone(it) },
                     onFailure = { _error.value = it.message ?: "Could not save the options." }
                 )

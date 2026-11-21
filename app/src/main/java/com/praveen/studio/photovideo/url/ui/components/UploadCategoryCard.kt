@@ -1,6 +1,10 @@
 package com.praveen.studio.photovideo.url.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -35,8 +41,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
-import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
-import com.praveen.studio.photovideo.url.ui.theme.IndigoSecondary
+import com.praveen.studio.photovideo.url.ui.theme.CategoryApks
+import com.praveen.studio.photovideo.url.ui.theme.CategoryDocuments
+import com.praveen.studio.photovideo.url.ui.theme.CategoryFiles
+import com.praveen.studio.photovideo.url.ui.theme.CategoryImages
+import com.praveen.studio.photovideo.url.ui.theme.CategoryVideos
+import com.praveen.studio.photovideo.url.ui.theme.onAccent
+import com.praveen.studio.photovideo.url.ui.theme.pressScale
+import com.praveen.studio.photovideo.url.ui.theme.softEnter
 
 /**
  * Upload card for one category.
@@ -55,30 +67,46 @@ fun UploadCategoryCard(
     modifier: Modifier = Modifier
 ) {
     val categoryAccentColor = when (category) {
-        MediaCategory.IMAGES -> CyanPrimary
-        MediaCategory.VIDEOS -> IndigoSecondary
-        MediaCategory.DOCUMENTS -> Color(0xFFF59E0B)
-        MediaCategory.FILES -> Color(0xFF10B981)
-        MediaCategory.APKS -> Color(0xFF8B5CF6)
+        MediaCategory.IMAGES -> CategoryImages
+        MediaCategory.VIDEOS -> CategoryVideos
+        MediaCategory.DOCUMENTS -> CategoryDocuments
+        MediaCategory.FILES -> CategoryFiles
+        MediaCategory.APKS -> CategoryApks
     }
+    // readable text on the accent colour (light accents like amber / emerald / sky get dark text)
+    val onAccentColor = onAccent(categoryAccentColor)
 
     val actualClick = if (needsSetup) onSetupNeeded else onClick
+
+    // minor animations: the card shrinks a little while pressed, and its border fades to the accent colour
+    val interaction = remember { MutableInteractionSource() }
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            needsSetup -> MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+            selectedCount > 0 -> categoryAccentColor
+            else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+        },
+        animationSpec = tween(durationMillis = 280),
+        label = "cardBorder"
+    )
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .softEnter(category.ordinal)
+            .pressScale(interaction)
             .alpha(if (needsSetup) 0.5f else 1f)
             .clip(RoundedCornerShape(16.dp))
             .border(
                 width = 1.dp,
-                color = when {
-                    needsSetup -> MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-                    selectedCount > 0 -> categoryAccentColor
-                    else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                },
+                color = borderColor,
                 shape = RoundedCornerShape(16.dp)
             )
-            .clickable { actualClick() }
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = { actualClick() }
+            )
             .testTag("upload_card_${category.name.lowercase()}"),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = if (selectedCount > 0 && !needsSetup) 4.dp else 1.dp
@@ -132,7 +160,7 @@ fun UploadCategoryCard(
                             Text(
                                 text = "$selectedCount ready",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
+                                color = onAccentColor
                             )
                         }
                     }
@@ -156,7 +184,7 @@ fun UploadCategoryCard(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (selectedCount > 0 && !needsSetup) categoryAccentColor
                     else MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = if (selectedCount > 0 && !needsSetup) Color.White
+                    contentColor = if (selectedCount > 0 && !needsSetup) onAccentColor
                     else MaterialTheme.colorScheme.onSurfaceVariant
                 ),
                 contentPadding = ButtonDefaults.ButtonWithIconContentPadding,

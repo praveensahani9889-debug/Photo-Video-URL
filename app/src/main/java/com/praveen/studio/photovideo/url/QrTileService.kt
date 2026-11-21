@@ -32,8 +32,10 @@ class QrTileService : TileService() {
     }
 
     private fun openScanner() {
-        val intent = Intent(this, LinkSearchActivity::class.java).apply {
-            putExtra(LinkSearchActivity.EXTRA_OPEN_SCANNER, true)
+        // the Search tab of the main screen opens and starts the scanner (the bottom bar stays the same everywhere)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_START_TAB, "SEARCH")
+            putExtra(MainActivity.EXTRA_OPEN_SCANNER, true)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         try {

@@ -69,6 +69,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.praveen.studio.photovideo.url.data.model.InstalledAppInfo
 import com.praveen.studio.photovideo.url.domain.util.ApkExtractorHelper
+import com.praveen.studio.photovideo.url.ui.theme.CategoryApks
+import com.praveen.studio.photovideo.url.ui.theme.onAccent
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -137,13 +139,13 @@ fun InstalledAppsDialog(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF8B5CF6).copy(alpha = 0.15f)),
+                                .background(CategoryApks.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Android,
                                 contentDescription = null,
-                                tint = Color(0xFF8B5CF6),
+                                tint = CategoryApks,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -337,13 +339,13 @@ private fun InstalledAppCard(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF8B5CF6).copy(alpha = 0.15f)),
+                        .background(CategoryApks.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Android,
                         contentDescription = appInfo.appName,
-                        tint = Color(0xFF8B5CF6),
+                        tint = CategoryApks,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -397,8 +399,8 @@ private fun InstalledAppCard(
                 enabled = !isBusy,
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF8B5CF6),
-                    contentColor = Color.White
+                    containerColor = CategoryApks,
+                    contentColor = onAccent(CategoryApks)
                 ),
                 contentPadding = ButtonDefaults.ContentPadding,
                 modifier = Modifier.height(34.dp)

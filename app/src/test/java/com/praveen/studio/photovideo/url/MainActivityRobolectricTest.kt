@@ -26,6 +26,12 @@ class MainActivityRobolectricTest {
         composeTestRule.onNodeWithTag("nav_item_history").performClick()
         composeTestRule.waitForIdle()
 
+        // Navigate to Search: it is a tab of the same screen, so the bottom bar must still be there
+        composeTestRule.onNodeWithTag("nav_item_search").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("search_input").assertExists()
+        composeTestRule.onNodeWithTag("app_bottom_nav_bar").assertExists()
+
         // Navigate to Settings
         composeTestRule.onNodeWithTag("nav_item_settings").performClick()
         composeTestRule.waitForIdle()

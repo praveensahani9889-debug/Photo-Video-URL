@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -61,6 +60,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +71,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -91,16 +93,24 @@ import com.praveen.studio.photovideo.url.data.remote.FoundItem
 import com.praveen.studio.photovideo.url.data.remote.FoundKind
 import com.praveen.studio.photovideo.url.domain.util.DownloadHelper
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
+import com.praveen.studio.photovideo.url.ui.theme.GradientButton
 
 /**
  * "Search & Download": paste a link, see the photo / video / document and save it to the phone.
  * The recent searches are kept on the phone only.
+ *
+ * This is a TAB of the main screen (like Upload, History and Settings): the bottom bar and the space for the
+ * keyboard belong to the main screen, so nothing here has to deal with them.
+ *
+ * @param scannerRequest true when something (the Quick Settings tile) wants the QR scanner to open now
+ * @param onScannerRequestHandled called once the request was taken, so it is not repeated
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LinkSearchScreen(
     onClose: () -> Unit,
-    openScannerOnStart: Boolean = false,
+    scannerRequest: Boolean = false,
+    onScannerRequestHandled: () -> Unit = {},
     viewModel: LinkSearchViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -109,7 +119,21 @@ fun LinkSearchScreen(
     val state by viewModel.state.collectAsState()
     val recents by viewModel.recentSearches.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
-    var showScanner by rememberSaveable { mutableStateOf(openScannerOnStart) }
+    var showScanner by rememberSaveable { mutableStateOf(false) }
+
+    // The Quick Settings tile: open the QR scanner (once)
+    LaunchedEffect(scannerRequest) {
+        if (scannerRequest) {
+            showScanner = true
+            onScannerRequestHandled()
+        }
+    }
+
+    // The tabs are not kept alive when another tab is open: leaving Search also clears its result, so the text
+    // box and the result below it never disagree when the user comes back.
+    DisposableEffect(Unit) {
+        onDispose { viewModel.clearResult() }
+    }
 
     // Android 9 needs the storage permission to save into the Downloads folder
     var pendingDownload by remember { mutableStateOf<FoundItem?>(null) }
@@ -165,16 +189,16 @@ fun LinkSearchScreen(
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+                // the same top bar colour as History and Settings
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .imePadding()
         ) {
             SearchBox(
                 query = query,
@@ -309,10 +333,10 @@ private fun SearchBox(
                 .testTag("search_input")
         )
         Spacer(modifier = Modifier.height(10.dp))
-        Button(
+        GradientButton(
             onClick = onSearch,
             enabled = query.isNotBlank(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("search_button")

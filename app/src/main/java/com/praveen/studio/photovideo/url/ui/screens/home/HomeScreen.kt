@@ -1,5 +1,6 @@
 package com.praveen.studio.photovideo.url.ui.screens.home
 
+import androidx.compose.ui.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
@@ -223,6 +224,7 @@ fun HomeScreen(
                 onNavigateToSettings = onNavigateToSettings
             )
         },
+        containerColor = Color.Transparent,
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
         LazyColumn(
@@ -426,8 +428,11 @@ fun HomeScreen(
     // (createdAt, not the address: the address can change on the Advanced options page, the key must not)
     val successKey = successStatus?.let { "${it.record.createdAt}#${it.totalCompleted}" }
     var adHandledFor by remember { mutableStateOf<String?>(null) }
+    // The very first free demo photo: no ad, and the Advanced options page is offered. From the second one on: as before.
+    val firstDemo by viewModel.firstDemoUpload.collectAsState()
+    val isFirstDemoSuccess = successStatus?.record?.isFreeTier == true && firstDemo
     val waitingForAd = successKey != null && adHandledFor != successKey &&
-        AdsConfigProvider.current.shouldShowInterstitialAds
+        AdsConfigProvider.current.shouldShowInterstitialAds && !isFirstDemoSuccess
     LaunchedEffect(successKey) {
         if (successKey != null && waitingForAd) {
             val activity = AdsActivity.find(context)
@@ -440,12 +445,12 @@ fun HomeScreen(
     }
 
     // After the ad (and before the result page): the "Advanced options" page. All optional, the user can skip it.
-    // Not for the free demo photos (they live in the developer's storage) and not when switched off in Firebase.
+    // For the free demo photos only the first one gets it (they live in the developer's storage); not when switched off in Firebase.
     var advancedHandledFor by remember { mutableStateOf<String?>(null) }
     val control by AppControlStore.state.collectAsState()
     val showAdvanced = successStatus != null && successKey != null && !waitingForAd &&
         advancedHandledFor != successKey && control.advancedOptionsEnabled &&
-        !successStatus.record.isDemo && !successStatus.record.isFreeTier
+        !successStatus.record.isDemo && (!successStatus.record.isFreeTier || isFirstDemoSuccess)
 
     val shownStatus = if ((waitingForAd || showAdvanced) && successStatus != null) {
         // "creating the link" stays on screen while the ad loads / plays and while the options page is open

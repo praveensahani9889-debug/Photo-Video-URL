@@ -1,5 +1,6 @@
 package com.praveen.studio.photovideo.url.ui.components
 
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -54,6 +55,8 @@ fun AppHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // the header colour continues behind the status bar (before: a strip of another colour above it)
+                .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween

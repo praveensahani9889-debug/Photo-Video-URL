@@ -138,6 +138,67 @@ fun SettingsScreen(
     val firebaseCheck by viewModel.firebaseCheck.collectAsState()
     val cacheBytes by viewModel.cacheBytes.collectAsState()
 
+    // Notifications: the card shows only while messages are NOT allowed; when they are on it disappears
+    val notificationLifecycle = LocalLifecycleOwner.current
+    var notificationsOn by remember { mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled()) }
+    var messagesOn by remember { mutableStateOf(AppNotifications.isMessagesEnabled(context)) }
+    DisposableEffect(notificationLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
+            }
+        }
+        notificationLifecycle.lifecycle.addObserver(observer)
+        onDispose { notificationLifecycle.lifecycle.removeObserver(observer) }
+    }
+    val openNotificationSettings = {
+        try {
+            context.startActivity(
+                Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+            )
+        } catch (_: Exception) {
+        }
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        // refused (or refused for good): the phone settings are the only place left to allow it
+        if (!notificationsOn) openNotificationSettings()
+    }
+    val notificationsAllowed = messagesOn && notificationsOn
+    val turnOnNotifications: () -> Unit = {
+        AppNotifications.setMessagesEnabled(context, true)
+        messagesOn = true
+        if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+            notificationsOn = true
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            openNotificationSettings()
+        }
+    }
+
+    // Automatic: opening Settings saves the readable list of the uploads (name, link, date) in the Downloads folder
+    LaunchedEffect(Unit) {
+        // wait until the tab animation is finished, so opening Settings stays smooth
+        kotlinx.coroutines.delay(400L)
+        withContext(Dispatchers.IO) {
+            try {
+                val local = try {
+                    PreferencesManager(context).localHistoryFlow.first()
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+                RecoveryStore.mergeUploads(HistoryRemoteStore.records.value + local)
+                val entries = RecoveryStore.readUploads()
+                if (entries.isNotEmpty() && !DownloadHelper.needsWritePermission(context)) {
+                    RecoveryStore.exportReadableAuto(context, entries)
+                }
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     var isGuideExpanded by remember { mutableStateOf(false) }
     var menuAccountId by remember { mutableStateOf<String?>(null) }
     var deleteAccountId by remember { mutableStateOf<String?>(null) }
@@ -176,6 +237,7 @@ fun SettingsScreen(
                 )
             )
         },
+        containerColor = Color.Transparent,
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
         LazyColumn(
@@ -622,264 +684,45 @@ fun SettingsScreen(
                 }
             }
 
-            // Notifications: messages from Firebase reach the phone also when the app is closed
-            item {
-                val notificationLifecycle = LocalLifecycleOwner.current
-                var notificationsOn by remember { mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled()) }
-                DisposableEffect(notificationLifecycle) {
-                    val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME) {
-                            notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
-                        }
-                    }
-                    notificationLifecycle.lifecycle.addObserver(observer)
-                    onDispose { notificationLifecycle.lifecycle.removeObserver(observer) }
-                }
-                // direct on / off switch of the messages (on = allowed by the phone AND switched on here)
-                var messagesOn by remember { mutableStateOf(AppNotifications.isMessagesEnabled(context)) }
-                val openNotificationSettings = {
-                    try {
-                        context.startActivity(
-                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                        )
-                    } catch (_: Exception) {
-                    }
-                }
-                val notificationPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-                    notificationsOn = NotificationManagerCompat.from(context).areNotificationsEnabled()
-                    // refused (or refused for good): the phone settings are the only place left to allow it
-                    if (!notificationsOn) openNotificationSettings()
-                }
-                val switchChecked = messagesOn && notificationsOn
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = CardDefaults.outlinedCardBorder()
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+            // Notifications: this card shows only while messages are NOT allowed. Once they are on, it is gone.
+            if (!notificationsAllowed) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = CardDefaults.outlinedCardBorder()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = AccentAmber,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Notifications",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = when {
-                                switchChecked -> "On. Messages arrive also when the app is closed."
-                                !messagesOn -> "Off. You get no messages from this app."
-                                else -> "Notifications are blocked for this app in the phone settings. Turn the switch on to allow them."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (messagesOn && !notificationsOn) AccentRose else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                                Text(
+                                    text = "Turn on notifications",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (!messagesOn) "Messages from this app are switched off." else "Allow notifications to get messages from this app.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                             Switch(
-                                checked = switchChecked,
-                                onCheckedChange = { on ->
-                                    if (on) {
-                                        AppNotifications.setMessagesEnabled(context, true)
-                                        messagesOn = true
-                                        if (NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-                                            notificationsOn = true
-                                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        } else {
-                                            openNotificationSettings()
-                                        }
-                                    } else {
-                                        AppNotifications.setMessagesEnabled(context, false)
-                                        messagesOn = false
-                                    }
-                                },
+                                checked = false,
+                                onCheckedChange = { turnOnNotifications() },
                                 modifier = Modifier.testTag("settings_notifications_switch")
                             )
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedButton(
-                            onClick = {
-                                try {
-                                    context.startActivity(
-                                        Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                    )
-                                } catch (_: Exception) {
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(imageVector = Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Notification settings")
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedButton(
-                            onClick = {
-                                try {
-                                    context.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                                } catch (_: Exception) {
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Allow background messages")
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "If messages only arrive when you open the app: choose this app in the list and set it to " +
-                                "\"Don't optimize\" (battery: Unrestricted). On Xiaomi, Oppo, Vivo, Realme and Samsung phones " +
-                                "also turn on \"Autostart\" / \"Allow background activity\" for this app.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
-                }
-            }
-
-            // Safe copy: an encrypted account file and an encrypted upload list in /storage/emulated/0/Photo video URL/
-            item {
-                val safeScope = rememberCoroutineScope()
-                val safeLifecycle = LocalLifecycleOwner.current
-                var safeReady by remember { mutableStateOf(false) }
-                var exporting by remember { mutableStateOf(false) }
-                var pendingExport by remember { mutableStateOf(false) }
-
-                val refreshSafe: () -> Unit = {
-                    safeScope.launch { safeReady = withContext(Dispatchers.IO) { RecoveryStore.isReady(context) } }
-                }
-                DisposableEffect(safeLifecycle) {
-                    val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME) refreshSafe()
-                    }
-                    safeLifecycle.lifecycle.addObserver(observer)
-                    onDispose { safeLifecycle.lifecycle.removeObserver(observer) }
-                }
-
-                // turns the encrypted upload list into a readable text file (name, link, date) in the Downloads folder
-                val doExport: () -> Unit = {
-                    if (!exporting) {
-                        exporting = true
-                        safeScope.launch {
-                            val result: Result<String> = withContext(Dispatchers.IO) {
-                                // uploads from before the safe copy existed are added first, so the list is complete
-                                val local = try {
-                                    PreferencesManager(context).localHistoryFlow.first()
-                                } catch (_: Throwable) {
-                                    emptyList()
-                                }
-                                RecoveryStore.mergeUploads(HistoryRemoteStore.records.value + local)
-                                val entries = RecoveryStore.readUploads()
-                                if (entries.isEmpty()) {
-                                    Result.failure<String>(IllegalStateException("There are no uploads to save yet."))
-                                } else {
-                                    RecoveryStore.exportReadable(context, entries)
-                                }
-                            }
-                            exporting = false
-                            result
-                                .onSuccess { Toast.makeText(context, "Saved in Downloads: $it", Toast.LENGTH_LONG).show() }
-                                .onFailure { Toast.makeText(context, it.message ?: "The list could not be saved.", Toast.LENGTH_LONG).show() }
-                        }
-                    }
-                }
-
-                val storagePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-                    refreshSafe()
-                    if (granted && pendingExport) doExport()
-                    pendingExport = false
-                }
-                val allowStorage: () -> Unit = {
-                    when {
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
-                            try {
-                                context.startActivity(
-                                    Intent(
-                                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                        android.net.Uri.parse("package:${context.packageName}")
-                                    )
-                                )
-                            } catch (_: Exception) {
-                                try {
-                                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                                } catch (_: Exception) {
-                                }
-                            }
-                        }
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
-                            Toast.makeText(context, "This Android version does not allow the folder. The app works as before.", Toast.LENGTH_LONG).show()
-                        else -> storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    }
-                }
-
-                SettingsCard {
-                    Text(
-                        text = "Safe copy on this phone",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Your account and the list of your uploads are saved in the folder \"Photo video URL\" as encrypted files " +
-                            "that only this app can read. After a re-install the app finds your account again.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (safeReady) Icons.Default.CheckCircle else Icons.Default.Info,
-                            contentDescription = null,
-                            tint = if (safeReady) AccentEmerald else AccentAmber,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (safeReady) "Active: the safe copy is kept up to date." else "Storage access is needed to keep the safe copy.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    if (!safeReady) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = allowStorage,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("settings_safe_copy_allow")
-                        ) { Text("Allow storage access") }
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Button(
-                        onClick = {
-                            if (DownloadHelper.needsWritePermission(context)) {
-                                pendingExport = true
-                                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                            } else {
-                                doExport()
-                            }
-                        },
-                        enabled = !exporting,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("settings_export_uploads")
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (exporting) "Saving..." else "Download my upload list")
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "The list is saved as a text file in Downloads with only the name, the link and the date of every upload.",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
 

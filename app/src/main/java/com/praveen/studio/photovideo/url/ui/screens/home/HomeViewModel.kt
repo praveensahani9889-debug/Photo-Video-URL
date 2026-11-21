@@ -44,6 +44,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _uploadStatus = MutableStateFlow<UploadStatus>(UploadStatus.Idle)
     val uploadStatus: StateFlow<UploadStatus> = _uploadStatus.asStateFlow()
 
+    /** True when the free demo photo that runs / just finished is the very FIRST one: no ad and the options page opens. */
+    private val _firstDemoUpload = MutableStateFlow(false)
+    val firstDemoUpload: StateFlow<Boolean> = _firstDemoUpload.asStateFlow()
+
     private val _stagedItems = MutableStateFlow<List<SelectedMediaItem>>(emptyList())
     val stagedItems: StateFlow<List<SelectedMediaItem>> = _stagedItems.asStateFlow()
 
@@ -111,6 +115,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             val item = withContext(Dispatchers.IO) {
                 resolveMediaItem(context, uri, MediaCategory.IMAGES, null, null)
             }?.copy(isTrial = true) ?: return@launch
+            // counted before the upload: from the second demo photo on, the ad shows as before
+            _firstDemoUpload.value = userDetails.value.freeTierUploadsUsed <= 0L
             _stagedItems.value = listOf(item)
             startBatchUpload(listOf(item))
         }
@@ -131,6 +137,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     /** Small files upload now. Files over the Supabase limit wait for the user's choice. */
     private fun stageAndUpload(items: List<SelectedMediaItem>) {
         if (items.isEmpty()) return
+        _firstDemoUpload.value = false
         val (large, normal) = items.partition { it.isTooLarge() }
         if (large.isNotEmpty()) {
             _largeFileQueue.update { it + large }

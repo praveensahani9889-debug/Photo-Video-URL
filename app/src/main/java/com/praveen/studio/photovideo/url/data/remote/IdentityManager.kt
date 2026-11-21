@@ -95,6 +95,19 @@ object IdentityManager {
 
     private fun deviceKeyOf(androidId: String): String = sha256Hex("ivu-device-v1|$androidId")
 
+    /** Writes the safe copy of the account again (called when the storage was allowed after the start). */
+    suspend fun refreshSafeCopy(context: Context) {
+        withContext(Dispatchers.IO) {
+            try {
+                val app = context.applicationContext
+                val provider = InstallationIdProvider(app)
+                val androidId = rawAndroidId(app) ?: return@withContext
+                if (provider.isVerified()) RecoveryStore.saveIdentity(provider.getInstallationId(), deviceKeyOf(androidId))
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     /**
      * The account file of this phone (see [RecoveryStore]). It is used only when a re-install / new app signature would
      * start a brand new account: the old user ID is read from the encrypted file and Firebase must confirm that

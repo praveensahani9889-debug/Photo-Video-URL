@@ -123,7 +123,9 @@ fun AdvancedOptionsDialog(
     var changePassword by remember { mutableStateOf(false) }
 
     // a custom name that was created once is fixed (only the automatic image_xxx / video_xxx names can be replaced)
-    val slugLocked = !LinkRules.isTypedId(record.shortId)
+    val customNameFixed = !LinkRules.isTypedId(record.shortId)
+    // the address is chosen once, on the page that opens right after the upload; from History it is always fixed
+    val slugLocked = customNameFixed || loadExisting
     // photos and videos are shown on the page: they need no "allow download" switch
     val recordKind = record.type.ifEmpty { record.fileType }.lowercase().removeSuffix("s")
     val showDownloadSwitch = recordKind != "image" && recordKind != "video"
@@ -200,7 +202,11 @@ fun AdvancedOptionsDialog(
                                 Icon(Icons.Default.Lock, contentDescription = null, tint = CyanPrimary, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "Your own name is fixed. It cannot be changed after it was created.",
+                                    text = if (customNameFixed) {
+                                        "Your own name is fixed. It cannot be changed after it was created."
+                                    } else {
+                                        "The link address is fixed. A name can only be chosen right after the upload."
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )

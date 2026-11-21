@@ -61,13 +61,24 @@ class LinkOptionsRepository(
      * Validates the draft and saves it. A new address moves the link to https://ivu.gt.tc/<name>.
      * Returns the changed record; the History and the saved copy on the phone are updated at once.
      */
-    suspend fun apply(record: UploadRecord, draft: LinkDraft, existing: LinkOptions): Result<UploadRecord> {
+    suspend fun apply(
+        record: UploadRecord,
+        draft: LinkDraft,
+        existing: LinkOptions,
+        allowRename: Boolean = true
+    ): Result<UploadRecord> {
         val typed = LinkSlugRules.normalize(draft.slug)
         val newSlug = if (typed.isEmpty()) record.shortId else typed
 
-        // a name that the user chose once stays as it is (only the automatic image_xxx / video_xxx names can be replaced)
-        if (newSlug != record.shortId && !LinkRules.isTypedId(record.shortId)) {
-            return Result.failure(IllegalArgumentException("A custom name cannot be changed after it was created."))
+        // The address is chosen ONCE, on the options page that opens right after the upload. Later (also when that page
+        // was skipped) it stays as it is, and a custom name that was created can never be changed.
+        if (newSlug != record.shortId) {
+            if (!LinkRules.isTypedId(record.shortId)) {
+                return Result.failure(IllegalArgumentException("A custom name cannot be changed after it was created."))
+            }
+            if (!allowRename) {
+                return Result.failure(IllegalArgumentException("The link address can only be chosen right after the upload."))
+            }
         }
 
         if (newSlug != record.shortId) {

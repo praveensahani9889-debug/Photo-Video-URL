@@ -71,6 +71,11 @@ import com.praveen.studio.photovideo.url.R
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.ui.components.QrCodeDialog
 import com.praveen.studio.photovideo.url.ui.theme.AccentAmber
+import com.praveen.studio.photovideo.url.ui.theme.CategoryApks
+import com.praveen.studio.photovideo.url.ui.theme.CategoryDocuments
+import com.praveen.studio.photovideo.url.ui.theme.CategoryFiles
+import com.praveen.studio.photovideo.url.ui.theme.CategoryImages
+import com.praveen.studio.photovideo.url.ui.theme.CategoryVideos
 import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 import com.praveen.studio.photovideo.url.ui.theme.IndigoSecondary
@@ -88,11 +93,11 @@ fun HistoryItemCard(
     var isExpanded by remember { mutableStateOf(false) }
 
     val categoryColor = when (record.fileType.lowercase()) {
-        "images", "image" -> CyanPrimary
-        "videos", "video" -> IndigoSecondary
-        "documents", "document" -> AccentAmber
-        "apks", "apk" -> Color(0xFF8B5CF6)
-        else -> AccentEmerald
+        "images", "image" -> CategoryImages
+        "videos", "video" -> CategoryVideos
+        "documents", "document" -> CategoryDocuments
+        "apks", "apk" -> CategoryApks
+        else -> CategoryFiles
     }
 
     val typeIcon = when (record.fileType.lowercase()) {

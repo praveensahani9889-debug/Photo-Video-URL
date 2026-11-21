@@ -117,15 +117,15 @@ jobs:
       # Prepare the user-friendly named APK for direct download (only ONE APK is published)
       - name: Prepare Direct APK File
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk PhotoVideoURL-v2.9.1.apk
-          ls -lh PhotoVideoURL-v2.9.1.apk
+          cp app/build/outputs/apk/debug/app-debug.apk PhotoVideoURL-v2.10.0.apk
+          ls -lh PhotoVideoURL-v2.10.0.apk
 
       # Upload Debug APK as Action Artifact (backup)
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: photo-video-url-debug-apk
-          path: PhotoVideoURL-v2.9.1.apk
+          path: PhotoVideoURL-v2.10.0.apk
           if-no-files-found: error
 
       # Publish directly to GitHub Releases so users get a direct .apk download (No ZIP!)
@@ -133,17 +133,17 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v2.9.1-${{ github.run_number }}"
-          name: "Photo Video URL v2.9.1 (build ${{ github.run_number }})"
+          tag_name: "v2.10.0-${{ github.run_number }}"
+          name: "Photo Video URL v2.10.0 (build ${{ github.run_number }})"
           body: |
             ## 📱 Photo Video URL Android App (Build #${{ github.run_number }})
             
             **Direct APK Download** — Click the link below under **Assets** to download and install directly on your Android phone without needing to unzip:
             
-            - **File:** `PhotoVideoURL-v2.9.1.apk`
+            - **File:** `PhotoVideoURL-v2.10.0.apk`
             - **Package Name:** `com.praveen.studio.photovideo.url`
             - **Features:** Supabase Storage, ivu.gt.tc Short URLs, Direct Share Target, Deep Linking, 50MB+ ZIP & Upload, APK Extractor.
-          files: PhotoVideoURL-v2.9.1.apk
+          files: PhotoVideoURL-v2.10.0.apk
           draft: false
           prerelease: false
           make_latest: true
