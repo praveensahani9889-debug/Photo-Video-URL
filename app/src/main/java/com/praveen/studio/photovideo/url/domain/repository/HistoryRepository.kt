@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
+import com.praveen.studio.photovideo.url.data.local.RecoveryStore
 import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
 import com.praveen.studio.photovideo.url.data.model.SupabaseAccount
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
@@ -12,6 +13,8 @@ import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
 import com.praveen.studio.photovideo.url.data.remote.HistoryRemoteStore
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
@@ -178,6 +181,7 @@ class HistoryRepository(
         }
 
         preferencesManager.removeRecords(removedIds)
+        withContext(Dispatchers.IO) { RecoveryStore.removeUploads(removedIds) }
         // the screen updates at once, Firebase is not asked again
         HistoryRemoteStore.remove(removedIds)
         onProgress(records.size, records.size)

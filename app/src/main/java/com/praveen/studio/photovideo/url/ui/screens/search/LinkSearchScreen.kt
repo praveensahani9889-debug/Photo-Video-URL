@@ -53,6 +53,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -143,7 +144,8 @@ fun LinkSearchScreen(
             onResult = { scanned ->
                 showScanner = false
                 query = scanned.trim()
-                runSearch(query)
+                focusManager.clearFocus()
+                viewModel.search(query, fromScan = true)
             },
             onDismiss = { showScanner = false }
         )
@@ -251,6 +253,10 @@ fun LinkSearchScreen(
 
                     is SearchUiState.Website -> item {
                         WebsiteCard(title = s.title, text = s.text, url = s.url)
+                    }
+
+                    is SearchUiState.ScannedLink -> item {
+                        ScannedLinkCard(text = s.text, url = s.url)
                     }
                 }
             }
@@ -412,6 +418,63 @@ private fun MessageCard(text: String, openUrl: String?) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Open in browser")
                 }
+            }
+        }
+    }
+}
+
+/** A QR code without a photo, video or file: its link (or text) is given directly, to open or to copy. */
+@Composable
+private fun ScannedLinkCard(text: String, url: String?) {
+    val context = LocalContext.current
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("search_scanned_link")
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = if (url != null) "Link from the QR code" else "Text from the QR code",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (url != null) "There is no photo, video or file to download here. This is the link:" else "This QR code holds text, not a link:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = url ?: text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (url != null) CyanPrimary else MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                if (url != null) {
+                    Button(
+                        onClick = { openInBrowser(context, url) },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Open link")
+                    }
+                }
+                OutlinedButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("QR code", url ?: text))
+                        android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                ) { Text("Copy") }
             }
         }
     }

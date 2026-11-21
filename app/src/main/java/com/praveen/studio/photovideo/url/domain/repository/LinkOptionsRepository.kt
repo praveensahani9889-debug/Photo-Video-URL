@@ -8,7 +8,10 @@ import com.praveen.studio.photovideo.url.data.model.LinkOptions
 import com.praveen.studio.photovideo.url.data.model.PublicLinkLookup
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.remote.FirebaseDatabaseManager
+import com.praveen.studio.photovideo.url.data.local.RecoveryStore
 import com.praveen.studio.photovideo.url.data.remote.HistoryRemoteStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.praveen.studio.photovideo.url.domain.util.LinkDraft
 import com.praveen.studio.photovideo.url.domain.util.LinkDraftMapper
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
@@ -85,6 +88,7 @@ class LinkOptionsRepository(
         saved.onSuccess { updated ->
             preferencesManager.replaceRecord(record.shortId, updated)
             HistoryRemoteStore.replace(record.shortId, updated)
+            withContext(Dispatchers.IO) { RecoveryStore.renameUpload(record.shortId, updated) }
         }
         return saved
     }

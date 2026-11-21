@@ -1,6 +1,7 @@
 package com.praveen.studio.photovideo.url.ui.components
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,20 +62,17 @@ fun AppHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                // App Logo Icon
-                Box(
+                // App logo: the picture has its own dark background, so it fills the whole rounded square
+                // (before it was shown small inside a light frame with sharp corners)
+                Image(
+                    painter = painterResource(id = R.drawable.ic_app_icon_fg),
+                    contentDescription = "Photo Video URL Logo",
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(44.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.ic_app_icon_fg),
-                        contentDescription = "Photo Video URL Logo",
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                )
 
                 Spacer(modifier = Modifier.width(12.dp))
 

@@ -24,6 +24,8 @@ sealed interface SearchUiState {
     data class Error(val text: String) : SearchUiState
     /** The website itself: shown with the banner of Photo Video URL. */
     data class Website(val url: String, val title: String, val text: String) : SearchUiState
+    /** A scanned QR code that has no photo, video or file: its text, and its link ready to open (null = not a link). */
+    data class ScannedLink(val text: String, val url: String?) : SearchUiState
 }
 
 class LinkSearchViewModel(application: Application) : AndroidViewModel(application) {
@@ -39,7 +41,7 @@ class LinkSearchViewModel(application: Application) : AndroidViewModel(applicati
 
     private var searchJob: Job? = null
 
-    fun search(raw: String) {
+    fun search(raw: String, fromScan: Boolean = false) {
         val query = raw.trim()
         if (query.isEmpty()) return
         searchJob?.cancel()
@@ -48,10 +50,28 @@ class LinkSearchViewModel(application: Application) : AndroidViewModel(applicati
             preferencesManager.addRecentSearch(query)
             _state.value = when (val result = resolver.resolve(query)) {
                 is LinkResult.Found -> SearchUiState.Found(result.items)
-                is LinkResult.NotSupported -> SearchUiState.Message(result.message, result.openUrl)
-                is LinkResult.Failed -> SearchUiState.Error(result.message)
+                // from the QR scanner: when nothing can be downloaded, the link itself is given directly
+                is LinkResult.NotSupported ->
+                    if (fromScan) SearchUiState.ScannedLink(query, result.openUrl ?: asWebUrl(query))
+                    else SearchUiState.Message(result.message, result.openUrl)
+                is LinkResult.Failed ->
+                    if (fromScan) SearchUiState.ScannedLink(query, asWebUrl(query))
+                    else SearchUiState.Error(result.message)
                 is LinkResult.Website -> SearchUiState.Website(result.url, result.title, result.text)
             }
+        }
+    }
+
+    /** The text as a link that a browser can open, or null when it is no link (spaces, other schemes, plain words). */
+    private fun asWebUrl(text: String): String? {
+        val t = text.trim()
+        if (t.isEmpty() || t.any { it.isWhitespace() }) return null
+        val lower = t.lowercase()
+        return when {
+            lower.startsWith("http://") || lower.startsWith("https://") -> t
+            lower.contains("://") -> null
+            t.contains('.') && !t.startsWith(".") && !t.endsWith(".") -> "https://$t"
+            else -> null
         }
     }
 

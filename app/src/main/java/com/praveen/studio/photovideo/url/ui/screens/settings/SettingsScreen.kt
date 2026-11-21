@@ -63,6 +63,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.core.app.NotificationManagerCompat
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.runtime.rememberCoroutineScope
+import com.praveen.studio.photovideo.url.data.local.PreferencesManager
+import com.praveen.studio.photovideo.url.data.local.RecoveryStore
+import com.praveen.studio.photovideo.url.data.remote.HistoryRemoteStore
+import com.praveen.studio.photovideo.url.domain.util.DownloadHelper
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -728,6 +738,148 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
+            }
+
+            // Safe copy: an encrypted account file and an encrypted upload list in /storage/emulated/0/Photo video URL/
+            item {
+                val safeScope = rememberCoroutineScope()
+                val safeLifecycle = LocalLifecycleOwner.current
+                var safeReady by remember { mutableStateOf(false) }
+                var exporting by remember { mutableStateOf(false) }
+                var pendingExport by remember { mutableStateOf(false) }
+
+                val refreshSafe: () -> Unit = {
+                    safeScope.launch { safeReady = withContext(Dispatchers.IO) { RecoveryStore.isReady(context) } }
+                }
+                DisposableEffect(safeLifecycle) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) refreshSafe()
+                    }
+                    safeLifecycle.lifecycle.addObserver(observer)
+                    onDispose { safeLifecycle.lifecycle.removeObserver(observer) }
+                }
+
+                // turns the encrypted upload list into a readable text file (name, link, date) in the Downloads folder
+                val doExport: () -> Unit = {
+                    if (!exporting) {
+                        exporting = true
+                        safeScope.launch {
+                            val result: Result<String> = withContext(Dispatchers.IO) {
+                                // uploads from before the safe copy existed are added first, so the list is complete
+                                val local = try {
+                                    PreferencesManager(context).localHistoryFlow.first()
+                                } catch (_: Throwable) {
+                                    emptyList()
+                                }
+                                RecoveryStore.mergeUploads(HistoryRemoteStore.records.value + local)
+                                val entries = RecoveryStore.readUploads()
+                                if (entries.isEmpty()) {
+                                    Result.failure<String>(IllegalStateException("There are no uploads to save yet."))
+                                } else {
+                                    RecoveryStore.exportReadable(context, entries)
+                                }
+                            }
+                            exporting = false
+                            result
+                                .onSuccess { Toast.makeText(context, "Saved in Downloads: $it", Toast.LENGTH_LONG).show() }
+                                .onFailure { Toast.makeText(context, it.message ?: "The list could not be saved.", Toast.LENGTH_LONG).show() }
+                        }
+                    }
+                }
+
+                val storagePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    refreshSafe()
+                    if (granted && pendingExport) doExport()
+                    pendingExport = false
+                }
+                val allowStorage: () -> Unit = {
+                    when {
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                            try {
+                                context.startActivity(
+                                    Intent(
+                                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                        android.net.Uri.parse("package:${context.packageName}")
+                                    )
+                                )
+                            } catch (_: Exception) {
+                                try {
+                                    context.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                                } catch (_: Exception) {
+                                }
+                            }
+                        }
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                            Toast.makeText(context, "This Android version does not allow the folder. The app works as before.", Toast.LENGTH_LONG).show()
+                        else -> storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    }
+                }
+
+                SettingsCard {
+                    Text(
+                        text = "Safe copy on this phone",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Your account and the list of your uploads are saved in the folder \"Photo video URL\" as encrypted files " +
+                            "that only this app can read. After a re-install the app finds your account again.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (safeReady) Icons.Default.CheckCircle else Icons.Default.Info,
+                            contentDescription = null,
+                            tint = if (safeReady) AccentEmerald else AccentAmber,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (safeReady) "Active: the safe copy is kept up to date." else "Storage access is needed to keep the safe copy.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    if (!safeReady) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = allowStorage,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("settings_safe_copy_allow")
+                        ) { Text("Allow storage access") }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            if (DownloadHelper.needsWritePermission(context)) {
+                                pendingExport = true
+                                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            } else {
+                                doExport()
+                            }
+                        },
+                        enabled = !exporting,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("settings_export_uploads")
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(if (exporting) "Saving..." else "Download my upload list")
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "The list is saved as a text file in Downloads with only the name, the link and the date of every upload.",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 

@@ -5,6 +5,7 @@ import android.provider.Settings
 import android.util.Log
 import com.praveen.studio.photovideo.url.data.local.ConfigBackupCodec
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
+import com.praveen.studio.photovideo.url.data.local.RecoveryStore
 import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,11 +71,17 @@ object IdentityManager {
             val androidId = rawAndroidId(app)
             try {
                 // never keep the start screen waiting for long when the phone is offline
-                withTimeoutOrNull(RESOLVE_TIMEOUT_MS) { resolveInstallationId(provider, androidId) }
+                withTimeoutOrNull(RESOLVE_TIMEOUT_MS) { resolveInstallationId(app, provider, androidId) }
             } catch (e: CancellationException) {
                 throw e
             } catch (t: Throwable) {
                 Log.w(TAG, "Identity notice: ${t.message}")
+            }
+            // the safe copy of the account on the phone (encrypted file); skipped quietly when the storage is not allowed
+            if (androidId != null && provider.isVerified()) {
+                withContext(Dispatchers.IO) {
+                    RecoveryStore.saveIdentity(provider.getInstallationId(), deviceKeyOf(androidId))
+                }
             }
             try {
                 withTimeoutOrNull(SYNC_TIMEOUT_MS) { syncSupabaseConfig(app, provider, androidId) }
@@ -86,13 +93,60 @@ object IdentityManager {
         }
     }
 
-    private suspend fun resolveInstallationId(provider: InstallationIdProvider, androidId: String?) {
+    private fun deviceKeyOf(androidId: String): String = sha256Hex("ivu-device-v1|$androidId")
+
+    /**
+     * The account file of this phone (see [RecoveryStore]). It is used only when a re-install / new app signature would
+     * start a brand new account: the old user ID is read from the encrypted file and Firebase must confirm that
+     *  - this ID was registered for a phone (device profile of the saved device key), and
+     *  - this phone is not already registered with another account.
+     * The file can only be decrypted on the same phone model, so a copy on another phone does not log in.
+     * Without a (valid) file nothing changes: the phone is detected exactly as before.
+     */
+    private suspend fun recoverFromFile(
+        provider: InstallationIdProvider,
+        manager: FirebaseDatabaseManager,
+        deviceKey: String
+    ): Boolean {
+        val saved = withContext(Dispatchers.IO) { RecoveryStore.readIdentity() } ?: return false
+        // the same account is already in use: the normal detection below does the rest
+        if (saved.installationId == provider.getInstallationId()) return false
+
+        val savedProfile = manager.fetchDeviceProfile(saved.deviceKey)
+        if (savedProfile.isFailure || savedProfile.getOrNull() != saved.installationId) return false
+
+        var registerNewKey = false
+        if (saved.deviceKey != deviceKey) {
+            // the Android ID changed (new app signature): this phone must not belong to another account yet
+            val current = manager.fetchDeviceProfile(deviceKey)
+            if (current.isFailure) return false
+            val currentId = current.getOrNull()
+            if (currentId != null && currentId != saved.installationId) return false
+            registerNewKey = currentId == null
+        }
+
+        provider.adopt(saved.installationId, verified = true)
+        if (registerNewKey) manager.registerDeviceProfile(deviceKey, saved.installationId)
+        Log.d(TAG, "Account restored from the safe copy of this phone")
+        return true
+    }
+
+    private suspend fun resolveInstallationId(context: Context, provider: InstallationIdProvider, androidId: String?) {
         if (provider.isVerified()) return
         // Without an Android ID there is nothing that identifies the phone: the local ID stays.
         if (androidId == null) return
 
-        val deviceKey = sha256Hex("ivu-device-v1|$androidId")
+        val deviceKey = deviceKeyOf(androidId)
         val manager = FirebaseDatabaseManager()
+
+        // 0. the account file of this phone: only when it exists and everything matches
+        try {
+            if (recoverFromFile(provider, manager, deviceKey)) return
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Safe copy notice: ${t.message}")
+        }
 
         val existing = manager.fetchDeviceProfile(deviceKey)
         if (existing.isFailure) {

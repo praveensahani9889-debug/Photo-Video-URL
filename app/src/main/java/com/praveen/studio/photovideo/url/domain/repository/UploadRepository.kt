@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
+import com.praveen.studio.photovideo.url.data.local.RecoveryStore
 import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.SelectedMediaItem
@@ -358,6 +359,8 @@ class UploadRepository(
         preferencesManager.addUploadRecord(record)
         // History and counters are updated here, so no screen has to ask Firebase again
         HistoryRemoteStore.upsert(record)
+        // encrypted safe copy of the upload list on the phone (quietly skipped when the storage is not allowed)
+        RecoveryStore.addUpload(record)
         UserDetailsStore.onUploadSucceeded(context, installationId, item.category, item.isTrial)
         activeAccount?.let { SupabaseAccountManager.recordUpload(context, it.id, item.sizeBytes) }
         send(UploadStatus.Success(record, totalItems))
