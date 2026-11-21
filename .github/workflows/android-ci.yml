@@ -73,6 +73,8 @@ jobs:
           rm -f app/src/main/java/com/praveen/studio/photovideo/url/ads/UnityRewardedBackend.kt
           rm -f app/src/fallback/UnityRewardedBackend.kt.txt
           rm -f app/src/main/res/drawable/ic_stat_notify.xml
+          # Search is now a tab of the main screen (LinkSearchScreen); this old separate screen calls it with removed parameters
+          rm -f app/src/main/java/com/praveen/studio/photovideo/url/LinkSearchActivity.kt
 
       # Build the main APK (debug build type). The published APK uses REAL Unity ads (-PadsTestMode=false);
       # builds on a developer machine / AI Studio keep test ads by default. To see Unity TEST ads in the published APK, add
