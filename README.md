@@ -23,6 +23,7 @@ Then: review (name) -> upload -> ad -> **Custom hosting** (instead of Advanced o
 **Custom hosting** (once, cannot be changed later; Skip keeps the automatic `ivu.gt.tc/web_...` address):
 `ivu.gt.tc/` (fixed) + a free name + one of the fixed endings
 (`.com .in .org .net .ai .co .my .free .ivu .ivu.com .p .s .html .abcd .app .site .online .tech .store .blog .live .xyz .dev .me .page`).
+The link is always shown, copied and shared with a `/` at the end (`https://ivu.gt.tc/mysite.com/`), because some servers refuse an address that ends in `.com`. What you pick decides by its CONTENT, not its name: a ZIP renamed to index.html is still opened as a ZIP.
 Names must be 3 to 30 letters / numbers / `-`; reserved and abusive names (app, info, abuse, admin, brands ...) are refused
 (`HostingRules`, `BlockedWords`, plus the words in Firebase `app/backend/blockedWords`). Firebase keys cannot contain
 dots, so `mysite.ivu.com` is saved as `public_links/mysite,ivu,com`.

@@ -38,7 +38,7 @@ class WebsiteHostingTest {
         assertEquals("mysite,com", HostingRules.key("mysite", ".com"))
         assertEquals("mysite,ivu,com", HostingRules.key("MySite", ".ivu.com"))
         assertEquals("mysite.ivu.com", HostingRules.address("MySite", ".ivu.com"))
-        assertEquals("https://ivu.gt.tc/mysite.com", HostingRules.url("mysite", ".com"))
+        assertEquals("https://ivu.gt.tc/mysite.com/", HostingRules.url("mysite", ".com"))
         assertTrue(HostingRules.isHostingKey("mysite,com"))
         assertTrue(HostingRules.SUFFIXES.all { it.startsWith(".") })
         assertTrue(HostingRules.SUFFIXES.none { it.contains(',') })

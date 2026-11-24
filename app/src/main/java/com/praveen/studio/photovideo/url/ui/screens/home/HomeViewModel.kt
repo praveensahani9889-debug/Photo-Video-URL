@@ -198,16 +198,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _websiteError.value = null
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
-                val name = displayNameOf(uri)
-                val lower = name.lowercase()
-                val type = app.contentResolver.getType(uri).orEmpty()
-                val fallback = name.substringBeforeLast('.').ifBlank { "My website" }
-                when {
-                    lower.endsWith(".zip") || type.contains("zip") -> WebsiteBuilder.fromZip(app, uri, fallback)
-                    lower.endsWith(".html") || lower.endsWith(".htm") || type == "text/html" ->
-                        WebsiteBuilder.fromHtml(app, uri, fallback)
-                    else -> Result.failure(IllegalStateException("Choose an index.html file or a ZIP file."))
-                }
+                WebsiteBuilder.fromUri(app, uri, displayNameOf(uri), app.contentResolver.getType(uri).orEmpty())
             }
             _websiteBusy.value = false
             result.fold(

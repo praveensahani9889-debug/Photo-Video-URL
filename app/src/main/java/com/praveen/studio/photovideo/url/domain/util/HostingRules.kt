@@ -55,7 +55,11 @@ object HostingRules {
     /** What the visitor types: "mysite.ivu.com". */
     fun address(name: String, suffix: String): String = normalizeName(name) + suffix
 
-    fun url(name: String, suffix: String): String = "https://$SITE/${address(name, suffix)}"
+    /**
+     * The link of the site. It ends with "/": some web servers refuse an address that ends like a file name such as
+     * ".com" (a 403 "Forbidden"), and the "/" also makes the relative links of the site work.
+     */
+    fun url(name: String, suffix: String): String = "https://$SITE/${address(name, suffix)}/"
 
     /** True for a hosting key such as "mysite,ivu,com". */
     fun isHostingKey(id: String): Boolean = id.contains(',')

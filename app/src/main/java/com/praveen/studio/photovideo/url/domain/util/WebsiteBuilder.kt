@@ -82,12 +82,44 @@ object WebsiteBuilder {
         return File(context.cacheDir, "$ROOT_FOLDER/${System.currentTimeMillis()}").also { it.mkdirs() }
     }
 
+    /**
+     * What the user picked: the CONTENT decides, not the name. A ZIP (also one that was renamed to "index.html")
+     * is opened as a site; a text / HTML file becomes the main page; anything else is refused.
+     */
+    fun fromUri(context: Context, uri: Uri, displayName: String, mimeType: String): Result<WebsiteDraft> {
+        val fallback = displayName.substringBeforeLast('.').ifBlank { "My website" }
+        val lower = displayName.lowercase(Locale.US)
+        val head = try {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                val bytes = ByteArray(4)
+                if (stream.read(bytes) == 4) bytes else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+        val isZip = head != null && head[0] == 0x50.toByte() && head[1] == 0x4B.toByte() &&
+            (head[2] == 0x03.toByte() || head[2] == 0x05.toByte())
+        return when {
+            isZip -> fromZip(context, uri, fallback)
+            lower.endsWith(".html") || lower.endsWith(".htm") || mimeType == "text/html" || mimeType == "text/plain" ->
+                fromHtml(context, uri, fallback)
+            else -> Result.failure(IllegalStateException("Choose an index.html file or a ZIP file."))
+        }
+    }
+
     /** One HTML file (index.html or any name): it becomes the main page of the site. */
     fun fromHtml(context: Context, uri: Uri, fallbackName: String): Result<WebsiteDraft> = try {
         val dir = newDir(context)
         val target = File(dir, "index.html")
         val opened = context.contentResolver.openInputStream(uri) ?: throw IllegalStateException("The file cannot be opened.")
         val size = opened.use { copyLimited(it, target, MAX_HTML_BYTES) }
+        // a real page is text: a file with binary bytes (a picture, an APK ...) would show as garbage
+        val looksBinary = target.inputStream().use { input ->
+            val buffer = ByteArray(4096)
+            val n = input.read(buffer)
+            n > 0 && (0 until n).any { buffer[it] == 0.toByte() }
+        }
+        if (looksBinary) throw IllegalStateException("This file is not an HTML text file. Choose index.html or a ZIP.")
         val files = listOf(WebsiteFile("index.html", size, "text/html"))
         Result.success(WebsiteDraft(titleOf(target) ?: fallbackName, dir, files, "index.html", emptyList()))
     } catch (e: Exception) {
