@@ -23,7 +23,9 @@ data class UploadRecord(
     var isDemo: Boolean = false,
     var isFreeTier: Boolean = false,
     /** Optional advanced settings of the link (custom address, expiry, password, view limit, page design). */
-    var options: LinkOptions = LinkOptions()
+    var options: LinkOptions = LinkOptions(),
+    /** Only for a TEXT POST (no file): the topic, the text and its design. Null for every file upload. */
+    var textPost: TextPostData? = null
 ) {
     /** The link ran out of time: the file and the link are deleted when the app sees it. */
     val isExpired: Boolean
@@ -40,6 +42,7 @@ data class UploadRecord(
 
     val formattedSize: String
         get() {
+            textPost?.let { return "${it.body.length} characters" }
             if (fileSize <= 0) return "0 B"
             val kb = fileSize / 1024.0
             val mb = kb / 1024.0

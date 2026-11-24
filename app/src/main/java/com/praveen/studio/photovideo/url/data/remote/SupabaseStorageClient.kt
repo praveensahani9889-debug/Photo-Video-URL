@@ -246,6 +246,80 @@ class SupabaseStorageClient(
         }
     }
 
+    /**
+     * Deletes EVERY file below [prefix] (a published website is a folder "web/<id>/" with many files).
+     * Returns how many files were removed. Uses the same Storage policies as [deleteObject].
+     */
+    suspend fun deleteFolder(config: SupabaseConfig, bucket: String, prefix: String): Result<Int> = withContext(Dispatchers.IO) {
+        if (!config.isConfigured) {
+            return@withContext Result.failure(IllegalStateException("Supabase URL or Anon Key is missing."))
+        }
+        try {
+            fun enc(part: String) = URLEncoder.encode(part, "UTF-8").replace("+", "%20")
+            val key = config.anonKey.trim()
+            val bucketEnc = enc(bucket.trim())
+            val json = "application/json".toMediaTypeOrNull()
+            val paths = ArrayList<String>()
+
+            suspend fun walk(folder: String, depth: Int) {
+                if (depth > 6 || paths.size > 3000) return
+                var offset = 0
+                while (true) {
+                    val body = JSONObject().put("prefix", folder).put("limit", 1000).put("offset", offset).toString()
+                    val request = Request.Builder()
+                        .url("${config.normalizedUrl}/storage/v1/object/list/$bucketEnc")
+                        .header("apikey", key)
+                        .header("Authorization", "Bearer $key")
+                        .post(body.toRequestBody(json))
+                        .build()
+                    val response = okHttpClient.newCall(request).await()
+                    val code = response.code
+                    val text = response.use { it.body?.string().orEmpty() }
+                    if (code == 401 || code == 403) throw IllegalStateException(DELETE_POLICY_HINT)
+                    if (code !in 200..299) throw IllegalStateException("Supabase list error ($code): ${text.take(120)}")
+                    val array = JSONArray(text)
+                    for (i in 0 until array.length()) {
+                        val item = array.getJSONObject(i)
+                        val name = item.optString("name")
+                        if (name.isEmpty()) continue
+                        val full = "$folder/$name"
+                        if (item.isNull("id")) walk(full, depth + 1) else paths += full
+                    }
+                    if (array.length() < 1000) break
+                    offset += 1000
+                }
+            }
+
+            walk(prefix.trim('/'), 0)
+            if (paths.isEmpty()) return@withContext Result.success(0)
+
+            for (chunk in paths.chunked(100)) {
+                val list = JSONArray()
+                chunk.forEach { list.put(it) }
+                val body = JSONObject().put("prefixes", list).toString()
+                val request = Request.Builder()
+                    .url("${config.normalizedUrl}/storage/v1/object/$bucketEnc")
+                    .header("apikey", key)
+                    .header("Authorization", "Bearer $key")
+                    .delete(body.toRequestBody(json))
+                    .build()
+                val response = okHttpClient.newCall(request).await()
+                val code = response.code
+                val text = response.use { it.body?.string().orEmpty() }
+                if (code == 401 || code == 403 || text.contains("row-level security", ignoreCase = true)) {
+                    throw IllegalStateException(DELETE_POLICY_HINT)
+                }
+                if (code !in 200..299) throw IllegalStateException("Supabase delete error ($code): ${text.take(120)}")
+            }
+            Result.success(paths.size)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Folder delete notice: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
     private suspend fun isReachable(url: String): Boolean {
         return try {
             val request = Request.Builder().url(url).header("Range", "bytes=0-0").get().build()

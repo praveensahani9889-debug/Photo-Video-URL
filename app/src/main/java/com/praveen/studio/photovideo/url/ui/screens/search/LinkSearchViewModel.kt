@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.remote.FoundItem
+import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
 import com.praveen.studio.photovideo.url.data.remote.LinkResolver
 import com.praveen.studio.photovideo.url.data.remote.LinkResult
 import kotlinx.coroutines.Job
@@ -58,6 +59,10 @@ class LinkSearchViewModel(application: Application) : AndroidViewModel(applicati
                     if (fromScan) SearchUiState.ScannedLink(query, asWebUrl(query))
                     else SearchUiState.Error(result.message)
                 is LinkResult.Website -> SearchUiState.Website(result.url, result.title, result.text)
+                is LinkResult.OpenViewer -> {
+                    IncomingIntentManager.openViewer(result.shortId)
+                    SearchUiState.Idle
+                }
             }
         }
     }

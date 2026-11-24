@@ -9,10 +9,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
-import com.praveen.studio.photovideo.url.ui.components.NavTab
 import com.praveen.studio.photovideo.url.ui.screens.search.LinkSearchScreen
 import com.praveen.studio.photovideo.url.ui.theme.PhotoVideoUrlTheme
 
@@ -21,21 +23,6 @@ class LinkSearchActivity : ComponentActivity() {
     companion object {
         /** Set by the Quick Settings tile: the QR scanner opens at once. */
         const val EXTRA_OPEN_SCANNER = "open_scanner"
-    }
-
-    /** A tab of the bottom bar: the main screen opens on that tab and this screen closes. */
-    private fun openMainTab(tab: NavTab) {
-        if (tab == NavTab.SEARCH) return
-        try {
-            startActivity(
-                Intent(this, MainActivity::class.java)
-                    .putExtra(MainActivity.EXTRA_START_TAB, tab.name)
-                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            )
-        } catch (t: Throwable) {
-            Log.w("LinkSearchActivity", "openMainTab failed: ${t.message}")
-        }
-        finish()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,11 +39,14 @@ class LinkSearchActivity : ComponentActivity() {
         setContent {
             val preferencesManager = remember { PreferencesManager(applicationContext) }
             val themePreference by preferencesManager.themeFlow.collectAsState(initial = ThemePreference.SYSTEM)
+            var openScanner by rememberSaveable {
+                mutableStateOf(intent?.getBooleanExtra(EXTRA_OPEN_SCANNER, false) == true)
+            }
             PhotoVideoUrlTheme(themePreference = themePreference) {
                 LinkSearchScreen(
                     onClose = { finish() },
-                    onNavigate = { tab -> openMainTab(tab) },
-                    openScannerOnStart = intent?.getBooleanExtra(EXTRA_OPEN_SCANNER, false) == true
+                    scannerRequest = openScanner,
+                    onScannerRequestHandled = { openScanner = false }
                 )
             }
         }

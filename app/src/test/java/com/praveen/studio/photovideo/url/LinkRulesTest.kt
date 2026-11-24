@@ -2,6 +2,7 @@ package com.praveen.studio.photovideo.url
 
 import com.praveen.studio.photovideo.url.data.model.PublicLinkRecord
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
+import com.praveen.studio.photovideo.url.data.model.TextPostData
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import com.praveen.studio.photovideo.url.domain.util.ViewerContent
 import org.junit.Assert.assertEquals
@@ -105,5 +106,38 @@ class LinkRulesTest {
         assertEquals("https://abc.supabase.co", SupabaseConfig(projectUrl = "ABC.supabase.co/").cleanUrl)
         assertTrue(SupabaseConfig(projectUrl = "abc.supabase.co", anonKey = "k").isWebCompatible)
         assertFalse(SupabaseConfig(projectUrl = "https://storage.mydomain.com", anonKey = "k").isWebCompatible)
+    }
+
+    @Test
+    fun textPost_isShownFromTheDatabaseWithoutAFile() {
+        val post = TextPostData(topic = "Hello", body = "First post", textColor = "#FFFFFF", bgColor = "#111827")
+        val rec = PublicLinkRecord(
+            url = "", type = "text", mime = "text/plain", fileName = "", storagePath = "", active = true, textPost = post
+        )
+        assertEquals("text", LinkRules.typeOf("text_AbC1234"))
+        val c = LinkRules.contentFor("text_AbC1234", rec)
+        assertTrue(c is ViewerContent.TextPost)
+        assertEquals(post, (c as ViewerContent.TextPost).post)
+        // a text link without its text is "not found"
+        assertEquals(ViewerContent.NotFound, LinkRules.contentFor("text_AbC1234", rec.copy(textPost = null)))
+    }
+
+    @Test
+    fun textPost_colourInputIsValidated() {
+        assertEquals("#1E293B", com.praveen.studio.photovideo.url.data.model.TextPostRules.normalizeHex("1e293b"))
+        assertNull(com.praveen.studio.photovideo.url.data.model.TextPostRules.normalizeHex("12345"))
+    }
+
+    @Test
+    fun deepLink_linksOpenInTheViewer_websitePagesStayInTheBrowser() {
+        assertEquals("text_AbC1234", LinkRules.viewerIdOfPath("/text_AbC1234"))
+        assertEquals("image_AbC123", LinkRules.viewerIdOfPath("/image_AbC123/"))
+        assertEquals("praveen", LinkRules.viewerIdOfPath("/praveen"))
+        assertNull(LinkRules.viewerIdOfPath("/about"))
+        assertNull(LinkRules.viewerIdOfPath("/privacy"))
+        assertNull(LinkRules.viewerIdOfPath("/web_abc123"))
+        assertNull(LinkRules.viewerIdOfPath("/thumb/image_abc123.jpg"))
+        assertNull(LinkRules.viewerIdOfPath("/"))
+        assertNull(LinkRules.viewerIdOfPath(null))
     }
 }

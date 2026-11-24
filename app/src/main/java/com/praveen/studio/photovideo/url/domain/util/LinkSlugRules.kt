@@ -10,7 +10,7 @@ object LinkSlugRules {
     const val MAX_LENGTH = 30
 
     private val ALLOWED = Regex("^[a-z0-9][a-z0-9_-]*$")
-    private val TYPED_PREFIX = Regex("^(image|video|document|file|apk|web)_", RegexOption.IGNORE_CASE)
+    private val TYPED_PREFIX = Regex("^(image|video|document|file|apk|text|web)_", RegexOption.IGNORE_CASE)
 
     fun normalize(input: String): String = input.trim().lowercase()
 

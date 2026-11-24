@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.ui.theme.CategoryApks
+import com.praveen.studio.photovideo.url.ui.theme.CategoryTexts
+import com.praveen.studio.photovideo.url.ui.theme.CategoryWebs
 import com.praveen.studio.photovideo.url.ui.theme.CategoryDocuments
 import com.praveen.studio.photovideo.url.ui.theme.CategoryFiles
 import com.praveen.studio.photovideo.url.ui.theme.CategoryImages
@@ -72,6 +74,8 @@ fun UploadCategoryCard(
         MediaCategory.DOCUMENTS -> CategoryDocuments
         MediaCategory.FILES -> CategoryFiles
         MediaCategory.APKS -> CategoryApks
+        MediaCategory.TEXT -> CategoryTexts
+        MediaCategory.WEB -> CategoryWebs
     }
     // readable text on the accent colour (light accents like amber / emerald / sky get dark text)
     val onAccentColor = onAccent(categoryAccentColor)

@@ -8,6 +8,8 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.data.model.LinkOptions
+import com.praveen.studio.photovideo.url.data.model.TextPostData
+import com.praveen.studio.photovideo.url.data.model.TextPostRules
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -214,7 +216,39 @@ class PreferencesManager(private val context: Context) {
                 put("isDemo", record.isDemo)
                 put("isFreeTier", record.isFreeTier)
                 if (!record.options.isDefault || record.options.views > 0L) put("options", optionsToJson(record.options))
+                record.textPost?.let { put("textPost", textPostToJson(it)) }
             }
+        }
+
+        private fun textPostToJson(t: TextPostData): JSONObject = JSONObject().apply {
+            put("topic", t.topic)
+            put("body", t.body)
+            put("textColor", t.textColor)
+            put("bgColor", t.bgColor)
+            put("font", t.font)
+            put("sizeSp", t.sizeSp)
+            put("bold", t.bold)
+            put("italic", t.italic)
+            put("underline", t.underline)
+            put("align", t.align)
+        }
+
+        private fun jsonToTextPost(o: JSONObject?): TextPostData? {
+            if (o == null) return null
+            val body = o.optString("body")
+            if (body.isEmpty()) return null
+            return TextPostData(
+                topic = o.optString("topic"),
+                body = body,
+                textColor = o.optString("textColor"),
+                bgColor = o.optString("bgColor"),
+                font = o.optString("font").ifEmpty { TextPostRules.FONT_SANS },
+                sizeSp = o.optInt("sizeSp", TextPostRules.DEFAULT_SIZE),
+                bold = o.optBoolean("bold", false),
+                italic = o.optBoolean("italic", false),
+                underline = o.optBoolean("underline", false),
+                align = o.optString("align").ifEmpty { TextPostRules.ALIGN_LEFT }
+            )
         }
 
         private fun optionsToJson(o: LinkOptions): JSONObject = JSONObject().apply {
@@ -271,7 +305,8 @@ class PreferencesManager(private val context: Context) {
                 status = obj.optString("status", "completed"),
                 isDemo = obj.optBoolean("isDemo", false),
                 isFreeTier = obj.optBoolean("isFreeTier", false),
-                options = jsonToOptions(obj.optJSONObject("options"))
+                options = jsonToOptions(obj.optJSONObject("options")),
+                textPost = jsonToTextPost(obj.optJSONObject("textPost"))
             )
         }
 

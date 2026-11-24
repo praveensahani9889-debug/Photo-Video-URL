@@ -52,6 +52,8 @@ class HistoryViewModel(application: Application) : AndroidViewModel(application)
                 "Documents" -> record.fileType.equals("Documents", ignoreCase = true) || record.mimeType.contains("pdf") || record.mimeType.contains("document")
                 "Files" -> record.fileType.equals("Files", ignoreCase = true)
                 "APKs" -> record.fileType.equals("APKs", ignoreCase = true) || record.fileName.endsWith(".apk", ignoreCase = true)
+                "Websites" -> record.type.equals("web", ignoreCase = true) || record.fileType.lowercase().removeSuffix("s") == "web"
+                "Texts" -> record.textPost != null || record.fileType.equals("Texts", ignoreCase = true) || record.fileType.equals("Text", ignoreCase = true)
                 else -> true
             }
 

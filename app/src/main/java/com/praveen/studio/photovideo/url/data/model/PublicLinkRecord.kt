@@ -9,7 +9,9 @@ data class PublicLinkRecord(
     val storagePath: String,
     val active: Boolean,
     /** Expiry, view limit, password, page design ... (all empty when the owner did not set anything). */
-    val options: LinkOptions = LinkOptions()
+    val options: LinkOptions = LinkOptions(),
+    /** Set for a text post (type = "text"): there is no file, the post itself is saved in the database. */
+    val textPost: TextPostData? = null
 )
 
 sealed interface PublicLinkLookup {

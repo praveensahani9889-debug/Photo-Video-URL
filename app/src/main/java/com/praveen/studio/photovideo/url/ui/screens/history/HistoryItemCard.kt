@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
@@ -69,12 +71,16 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.praveen.studio.photovideo.url.R
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
+import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import com.praveen.studio.photovideo.url.ui.components.QrCodeDialog
+import com.praveen.studio.photovideo.url.ui.components.TextPostCard
 import com.praveen.studio.photovideo.url.ui.theme.AccentAmber
 import com.praveen.studio.photovideo.url.ui.theme.CategoryApks
 import com.praveen.studio.photovideo.url.ui.theme.CategoryDocuments
 import com.praveen.studio.photovideo.url.ui.theme.CategoryFiles
 import com.praveen.studio.photovideo.url.ui.theme.CategoryImages
+import com.praveen.studio.photovideo.url.ui.theme.CategoryTexts
+import com.praveen.studio.photovideo.url.ui.theme.CategoryWebs
 import com.praveen.studio.photovideo.url.ui.theme.CategoryVideos
 import com.praveen.studio.photovideo.url.ui.theme.AccentEmerald
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
@@ -92,11 +98,19 @@ fun HistoryItemCard(
     val context = LocalContext.current
     var isExpanded by remember { mutableStateOf(false) }
 
+    // The edit pencil only exists for a link where Advanced options were really used (options saved, or its own
+    // address). A link that was created with "Skip" has no pencil.
+    // A website has no Advanced options: its hosting address and expiry are chosen once and then stay.
+    val isWebsite = record.type.equals("web", ignoreCase = true) || record.fileType.lowercase().removeSuffix("s") == "web"
+    val hasAdvanced = !isWebsite && (!record.options.isDefault || !LinkRules.isTypedId(record.shortId))
+
     val categoryColor = when (record.fileType.lowercase()) {
         "images", "image" -> CategoryImages
         "videos", "video" -> CategoryVideos
         "documents", "document" -> CategoryDocuments
         "apks", "apk" -> CategoryApks
+        "texts", "text" -> CategoryTexts
+        "webs", "web" -> CategoryWebs
         else -> CategoryFiles
     }
 
@@ -105,6 +119,8 @@ fun HistoryItemCard(
         "videos", "video" -> Icons.Default.Videocam
         "documents", "document" -> Icons.Default.Description
         "apks", "apk" -> Icons.Default.Android
+        "texts", "text" -> Icons.Default.TextFields
+        "webs", "web" -> Icons.Default.Language
         else -> Icons.Default.FolderZip
     }
 
@@ -302,6 +318,43 @@ fun HistoryItemCard(
                         .fillMaxWidth()
                         .padding(top = 10.dp)
                 ) {
+                    // Text post: a preview of the post and the pencil for its Advanced options
+                    record.textPost?.let { post ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "TEXT POST:",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (onAdvanced != null && hasAdvanced) {
+                                IconButton(
+                                    onClick = { onAdvanced(record) },
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .testTag("history_advanced_${record.shortId}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Advanced options",
+                                        tint = CyanPrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        TextPostCard(
+                            post = post.copy(body = post.body.take(200) + if (post.body.length > 200) "\u2026" else ""),
+                            pageColor = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
                     // Demo (free trial) photos live in the developer's storage: their real URL and path stay hidden
                     if (record.originalSupabaseUrl.isNotBlank() && !record.isDemo && !record.isFreeTier) {
                         Row(
@@ -315,7 +368,7 @@ fun HistoryItemCard(
                                 modifier = Modifier.weight(1f)
                             )
                             // pencil: opens the Advanced options of this link (address, expiry, password, ...)
-                            if (onAdvanced != null) {
+                            if (onAdvanced != null && hasAdvanced) {
                                 IconButton(
                                     onClick = { onAdvanced(record) },
                                     modifier = Modifier
@@ -348,7 +401,13 @@ fun HistoryItemCard(
                     ) {
                         if (!record.isFreeTier) {
                             Text(
-                                text = "Storage Path: ${record.storagePath}",
+                                text = when {
+                                    record.textPost != null -> "Saved in the database only"
+                                    isWebsite && record.options.expiresAt > 0L ->
+                                        "Website  \u2022  online until ${java.text.DateFormat.getDateInstance().format(java.util.Date(record.options.expiresAt))}"
+                                    isWebsite -> "Website  \u2022  no expiry"
+                                    else -> "Storage Path: ${record.storagePath}"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

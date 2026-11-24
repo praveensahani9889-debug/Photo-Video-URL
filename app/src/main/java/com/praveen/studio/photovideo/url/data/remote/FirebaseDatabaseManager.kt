@@ -14,6 +14,8 @@ import com.praveen.studio.photovideo.url.data.model.AppControl
 import com.praveen.studio.photovideo.url.data.model.AppControlStore
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
+import com.praveen.studio.photovideo.url.data.model.TextPostData
+import com.praveen.studio.photovideo.url.data.model.TextPostRules
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
 import com.praveen.studio.photovideo.url.domain.util.LinkSlugRules
@@ -52,7 +54,7 @@ class FirebaseDatabaseManager {
         private const val LOOKUP_TIMEOUT_MS = 10_000L
         private const val DELETE_TIMEOUT_MS = 12_000L
         private const val HISTORY_TIMEOUT_MS = 25_000L
-        private val HISTORY_FOLDERS = listOf("images", "videos", "documents", "files", "apks")
+        private val HISTORY_FOLDERS = listOf("images", "videos", "documents", "files", "apks", "texts", "webs")
 
         /** The app/ defaults only need to be checked once per app process, not on every screen. */
         @Volatile
@@ -132,6 +134,8 @@ class FirebaseDatabaseManager {
             MediaCategory.DOCUMENTS -> "documents"
             MediaCategory.FILES -> "files"
             MediaCategory.APKS -> "apks"
+            MediaCategory.TEXT -> "texts"
+            MediaCategory.WEB -> "webs"
         }
     }
 
@@ -197,7 +201,11 @@ class FirebaseDatabaseManager {
                 val limitNode = snap.child("demoImageLimit")
                 val ipLimitNode = snap.child("ipFreeLimit")
                 val maxAccountsNode = snap.child("maxSupabaseAccounts")
+                val webExpiryNode = snap.child("websiteExpiryDays")
+                val webMaxExpiryNode = snap.child("websiteMaxExpiryDays")
                 AppControl(
+                    websiteExpiryDays = if (webExpiryNode.exists()) getNumberAsLong(webExpiryNode).toInt() else 30,
+                    websiteMaxExpiryDays = if (webMaxExpiryNode.exists()) getNumberAsLong(webMaxExpiryNode).toInt() else 365,
                     demoEnabled = readBoolean(snap.child("demoEnabled"), true),
                     demoImageLimit = if (limitNode.exists()) getNumberAsLong(limitNode).coerceAtLeast(0L) else 3L,
                     ipLimitEnabled = readBoolean(snap.child("ipLimitEnabled"), true),
@@ -431,7 +439,9 @@ class FirebaseDatabaseManager {
         installationId: String,
         record: UploadRecord,
         category: MediaCategory,
-        isFreeTier: Boolean
+        isFreeTier: Boolean,
+        /** Public file name for the website (page title); a published website uses the name of the site. */
+        publicNameOverride: String? = null
     ): Result<Unit> {
         val userNode = userRef(installationId)
             ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
@@ -461,7 +471,7 @@ class FirebaseDatabaseManager {
 
             // File name used by the website for the download name / page title: the sanitized storage
             // name without the short id prefix (the original device file name stays private).
-            val publicFileName = record.storagePath
+            val publicFileName = publicNameOverride?.takeIf { it.isNotBlank() } ?: record.storagePath
                 .substringAfterLast('/')
                 .removePrefix("${record.shortId}_")
 
@@ -517,6 +527,8 @@ class FirebaseDatabaseManager {
                             MediaCategory.DOCUMENTS -> "totalDocumentsUpload"
                             MediaCategory.FILES -> "totalFilesUpload"
                             MediaCategory.APKS -> "totalApksUpload"
+                            MediaCategory.TEXT -> "totalTextsUpload"
+                            MediaCategory.WEB -> "totalWebsUpload"
                         }
                         detailsRef.child(fieldToIncrement).setValue(ServerValue.increment(1)).await()
                         if (isFreeTier) {
@@ -539,6 +551,85 @@ class FirebaseDatabaseManager {
             throw e
         } catch (t: Throwable) {
             Log.w(TAG, "Failed to register upload in Firebase: ${t.message}")
+            Result.failure(IllegalStateException(describeError(t), t))
+        }
+    }
+
+    /**
+     * PUBLISHES a text post: only the database is used (no file, no Supabase).
+     *  - user/{installationId}/texts/{shortId}: the History entry
+     *  - public_links/{shortId}: what the viewer / website reads (type = "text", the text and its design, and the
+     *    advanced options the owner chose before publishing)
+     * A retry after a first attempt that already reached the server counts as saved.
+     */
+    suspend fun registerTextPost(installationId: String, record: UploadRecord): Result<Unit> {
+        val userNode = userRef(installationId)
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        val publicLinks = publicLinksRef()
+            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        val post = record.textPost
+            ?: return Result.failure(IllegalStateException("The text post is empty."))
+
+        return try {
+            val historyMap = LinkedHashMap<String, Any?>()
+            historyMap["fileName"] = record.fileName
+            historyMap["fileType"] = "text"
+            historyMap["fileSize"] = record.fileSize
+            historyMap["mimeType"] = "text/plain"
+            historyMap["shortUrl"] = record.effectiveShortUrl
+            historyMap["uploadDate"] = record.uploadDate
+            historyMap["uploadTime"] = record.uploadTime
+            historyMap["timestamp"] = record.createdAt
+            historyMap["shortId"] = record.shortId
+            historyMap["isFreeTier"] = false
+            post.applyTo(historyMap)
+            record.options.applyTo(historyMap, publicNode = false)
+
+            val publicMap = LinkedHashMap<String, Any?>()
+            publicMap["type"] = "text"
+            publicMap["mimeType"] = "text/plain"
+            publicMap["createdAt"] = ServerValue.TIMESTAMP
+            publicMap["active"] = true
+            post.applyTo(publicMap)
+            record.options.applyTo(publicMap, publicNode = true)
+
+            val historyRef = userNode.child("texts").child(record.shortId)
+            withTimeout(REGISTER_TIMEOUT_MS) {
+                historyRef.setValue(historyMap).await()
+                try {
+                    val existing = try {
+                        publicLinks.child(record.shortId).get().await()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        null
+                    }
+                    val alreadyPublished = existing != null && existing.exists() &&
+                        existing.child("body").getValue(String::class.java) == post.body
+                    // another link already uses this address (the rules would allow overwriting a text post)
+                    if (existing != null && existing.exists() && !alreadyPublished) {
+                        throw IllegalStateException("This name was just taken by someone else. Choose another one.")
+                    }
+                    if (!alreadyPublished) {
+                        publicLinks.child(record.shortId).setValue(publicMap).await()
+                    }
+                } catch (t: Throwable) {
+                    // Do not leave a history entry whose link can never open.
+                    try {
+                        historyRef.removeValue()
+                    } catch (_: Throwable) {
+                    }
+                    throw t
+                }
+            }
+            Result.success(Unit)
+        } catch (e: TimeoutCancellationException) {
+            Log.w(TAG, "Timed out while publishing the text post")
+            Result.failure(IllegalStateException("Timed out while publishing. Check your internet connection."))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to publish the text post: ${t.message}")
             Result.failure(IllegalStateException(describeError(t), t))
         }
     }
@@ -741,7 +832,7 @@ class FirebaseDatabaseManager {
 
     private fun parseUploads(snapshot: DataSnapshot, installationId: String): List<UploadRecord> {
         val list = mutableListOf<UploadRecord>()
-        val categoryFolders = listOf("images", "videos", "documents", "files", "apks")
+        val categoryFolders = listOf("images", "videos", "documents", "files", "apks", "texts", "webs")
         for (folder in categoryFolders) {
             val folderSnapshot = snapshot.child(folder)
             for (child in folderSnapshot.children) {
@@ -782,7 +873,8 @@ class FirebaseDatabaseManager {
                             createdAt = timestamp,
                             timestamp = timestamp,
                             isFreeTier = isFreeTier,
-                            options = parseOptions(child, isPublicNode = false)
+                            options = parseOptions(child, isPublicNode = false),
+                            textPost = if (folder == "texts") parseTextPost(child) else null
                         )
                     )
                 } catch (t: Throwable) {
@@ -891,7 +983,9 @@ class FirebaseDatabaseManager {
         }
 
         val url = text("originalUrl", "supabaseUrl", "url")
-        if (url.isEmpty()) return null
+        // a text post has no file: its text is saved in the node itself
+        val textPost = if (text("fileType", "type").lowercase() == "text") parseTextPost(snap) else null
+        if (url.isEmpty() && textPost == null) return null
 
         val activeRaw = snap.child("active").value
         val active = !(activeRaw == false ||
@@ -906,7 +1000,29 @@ class FirebaseDatabaseManager {
             fileName = text("fileName"),
             storagePath = text("storagePath"),
             active = active,
-            options = parseOptions(snap, isPublicNode = true)
+            options = parseOptions(snap, isPublicNode = true),
+            textPost = textPost
+        )
+    }
+
+    /** Reads the text post fields of a Firebase node (public link or history entry); null when there is no text. */
+    private fun parseTextPost(node: DataSnapshot): TextPostData? {
+        val body = (node.child("body").value as? String).orEmpty()
+        if (body.isEmpty()) return null
+        fun str(key: String): String = (node.child(key).value as? String)?.trim().orEmpty()
+        fun flag(key: String): Boolean = node.child(key).value == true
+        val size = (node.child("textSize").value as? Number)?.toInt() ?: TextPostRules.DEFAULT_SIZE
+        return TextPostData(
+            topic = str("topic"),
+            body = body,
+            textColor = str("textColor"),
+            bgColor = str("textBg"),
+            font = str("textFont").ifEmpty { TextPostRules.FONT_SANS },
+            sizeSp = size.coerceIn(10, 48),
+            bold = flag("textBold"),
+            italic = flag("textItalic"),
+            underline = flag("textUnderline"),
+            align = str("textAlign").ifEmpty { TextPostRules.ALIGN_LEFT }
         )
     }
 
@@ -987,7 +1103,9 @@ class FirebaseDatabaseManager {
         installationId: String,
         record: UploadRecord,
         newSlug: String,
-        options: LinkOptions
+        options: LinkOptions,
+        /** The address the visitor types, when it differs from the Firebase key (a website: "mysite.com"). */
+        displayUrl: String? = null
     ): Result<UploadRecord> {
         val db = getDatabase()
             ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
@@ -995,7 +1113,7 @@ class FirebaseDatabaseManager {
             ?: return Result.failure(IllegalStateException("The file type of this link is unknown."))
         val oldId = record.shortId
         val renamed = newSlug != oldId
-        val fullUrl = LinkSlugRules.fullUrl(newSlug)
+        val fullUrl = displayUrl ?: LinkSlugRules.fullUrl(newSlug)
         val userPath = "$NODE_USER/$installationId/$folder"
 
         return try {

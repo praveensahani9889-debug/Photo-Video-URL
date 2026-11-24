@@ -208,6 +208,18 @@ class HistoryRepository(
                 IllegalStateException("${record.fileName} is stored in another Supabase project than the ones set up in Settings.")
             )
 
+        // A published website is a whole folder (web/<id>/...): every file of it is removed
+        if (record.type.equals("web", ignoreCase = true)) {
+            val folder = record.storagePath.substringBeforeLast('/', "")
+            if (!folder.startsWith("web/")) {
+                return Result.failure(IllegalStateException("The storage folder of ${record.fileName} is unknown."))
+            }
+            val bucket = record.storageBucket.ifBlank { account.config.bucketName }.trim()
+            val removed = supabaseClient.deleteFolder(account.config, bucket, folder)
+            if (removed.isSuccess) SupabaseAccountManager.recordDelete(appContext, account.id, record.fileSize)
+            return removed.map { }
+        }
+
         val location = locateInStorage(record, publicUrl, account.config)
             ?: return Result.failure(IllegalStateException("The storage path of ${record.fileName} is unknown."))
 

@@ -8,6 +8,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.SelectedMediaItem
+import com.praveen.studio.photovideo.url.data.model.TextPostData
+import com.praveen.studio.photovideo.url.domain.util.WebsiteBuilder
+import com.praveen.studio.photovideo.url.domain.util.WebsiteDraft
+import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.model.UserDetails
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
@@ -59,6 +63,28 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Files that were still waiting when an earlier file of the same batch failed (continued on Retry). */
     private var itemsAfterFailure: List<SelectedMediaItem> = emptyList()
+
+    /** The text post that waits for the ad, the Advanced options and Publish (nothing is saved before Publish). */
+    private val _textDraft = MutableStateFlow<UploadRecord?>(null)
+    val textDraft: StateFlow<UploadRecord?> = _textDraft.asStateFlow()
+
+    // ---- Website publish ----
+    /** A website that was read (zip / html / terminal) and waits for the name + Publish. */
+    private val _websiteDraft = MutableStateFlow<WebsiteDraft?>(null)
+    val websiteDraft: StateFlow<WebsiteDraft?> = _websiteDraft.asStateFlow()
+
+    /** True while a ZIP is opened in the background. */
+    private val _websiteBusy = MutableStateFlow(false)
+    val websiteBusy: StateFlow<Boolean> = _websiteBusy.asStateFlow()
+
+    private val _websiteError = MutableStateFlow<String?>(null)
+    val websiteError: StateFlow<String?> = _websiteError.asStateFlow()
+
+    /** The website of a failed upload: "Retry" uploads it again. */
+    private var websiteToRetry: WebsiteDraft? = null
+
+    /** The text post of a failed Publish: "Retry" publishes it again. */
+    private var textToRetry: UploadRecord? = null
 
     /** Only one batch uploads at a time, so two batches never fight over the progress dialog. */
     private val uploadMutex = Mutex()
@@ -151,8 +177,127 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private fun SelectedMediaItem.isTooLarge(): Boolean =
         !isTrial && !skipSizePrompt && sizeBytes > UploadLimits.SUPABASE_FREE_MAX_BYTES
 
+    // ---- Website publish: file (index.html / zip) or Terminal -> review -> upload -> ad -> Custom hosting ----
+
+    private fun displayNameOf(uri: Uri): String {
+        val app = getApplication<Application>()
+        return try {
+            app.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+            }
+        } catch (_: Throwable) {
+            null
+        } ?: (uri.lastPathSegment ?: "website")
+    }
+
+    /** The user picked index.html or a ZIP: it is read in the background. */
+    fun loadWebsiteFile(uri: Uri) {
+        val app = getApplication<Application>()
+        _websiteBusy.value = true
+        _websiteError.value = null
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                val name = displayNameOf(uri)
+                val lower = name.lowercase()
+                val type = app.contentResolver.getType(uri).orEmpty()
+                val fallback = name.substringBeforeLast('.').ifBlank { "My website" }
+                when {
+                    lower.endsWith(".zip") || type.contains("zip") -> WebsiteBuilder.fromZip(app, uri, fallback)
+                    lower.endsWith(".html") || lower.endsWith(".htm") || type == "text/html" ->
+                        WebsiteBuilder.fromHtml(app, uri, fallback)
+                    else -> Result.failure(IllegalStateException("Choose an index.html file or a ZIP file."))
+                }
+            }
+            _websiteBusy.value = false
+            result.fold(
+                onSuccess = { _websiteDraft.value = it },
+                onFailure = { _websiteError.value = it.message ?: "The website could not be read." }
+            )
+        }
+    }
+
+    /** The files written in the Terminal. */
+    fun loadWebsiteTexts(texts: Map<String, String>) {
+        val app = getApplication<Application>()
+        _websiteBusy.value = true
+        _websiteError.value = null
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { WebsiteBuilder.fromTexts(app, "My website", texts) }
+            _websiteBusy.value = false
+            result.fold(
+                onSuccess = { _websiteDraft.value = it },
+                onFailure = { _websiteError.value = it.message ?: "The website could not be prepared." }
+            )
+        }
+    }
+
+    fun clearWebsiteError() {
+        _websiteError.value = null
+    }
+
+    /** Cancel on the review page: the prepared files are removed. */
+    fun discardWebsite() {
+        _websiteDraft.value = null
+        WebsiteBuilder.clean(getApplication<Application>())
+    }
+
+    /** "Publish" on the review page: the files go to the user's Supabase, then the link is saved. */
+    fun confirmWebsite(name: String) {
+        val draft = _websiteDraft.value ?: return
+        _websiteDraft.value = null
+        startWebsiteUpload(draft.copy(name = name))
+    }
+
+    private fun startWebsiteUpload(draft: WebsiteDraft) {
+        textToRetry = null
+        websiteToRetry = draft
+        viewModelScope.launch {
+            uploadMutex.withLock {
+                uploadRepository.uploadWebsite(draft).collect { status ->
+                    _uploadStatus.value = status
+                    if (status is UploadStatus.Success) websiteToRetry = null
+                }
+            }
+        }
+    }
+
+    // ---- Text post (database only) ----
+
+    /** The editor is finished: the post gets its address; the ad and the Advanced options follow. */
+    fun startTextPost(post: TextPostData) {
+        textToRetry = null
+        _uploadStatus.value = UploadStatus.Preparing(post.topic.ifBlank { "Text post" })
+        viewModelScope.launch {
+            _textDraft.value = withContext(Dispatchers.IO) { uploadRepository.createTextDraft(post) }
+        }
+    }
+
+    /** Back from the Advanced options page: nothing was published, the editor opens again. */
+    fun cancelTextPost() {
+        _textDraft.value = null
+        textToRetry = null
+        _uploadStatus.value = UploadStatus.Idle
+    }
+
+    /** "Publish": the post is saved in the database and the result page opens. */
+    fun publishTextPost(record: UploadRecord) {
+        _textDraft.value = null
+        textToRetry = record
+        viewModelScope.launch {
+            uploadMutex.withLock {
+                uploadRepository.publishTextPost(record).collect { status ->
+                    _uploadStatus.value = status
+                    if (status is UploadStatus.Success) textToRetry = null
+                }
+            }
+        }
+    }
+
     private fun startBatchUpload(items: List<SelectedMediaItem>) {
         if (items.isEmpty()) return
+        textToRetry = null
+        websiteToRetry = null
         viewModelScope.launch {
             uploadMutex.withLock { runBatch(items) }
         }
@@ -250,6 +395,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun retryLastUpload() {
+        websiteToRetry?.let { pending ->
+            startWebsiteUpload(pending)
+            return
+        }
+        textToRetry?.let { pending ->
+            publishTextPost(pending)
+            return
+        }
         val item = lastFailedItem ?: return
         val rest = itemsAfterFailure
         itemsAfterFailure = emptyList()
@@ -274,6 +427,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissProgress() {
         if (_uploadStatus.value is UploadStatus.Failed) {
             itemsAfterFailure = emptyList()
+        }
+        textToRetry = null
+        if (websiteToRetry != null) {
+            websiteToRetry = null
+            WebsiteBuilder.clean(getApplication<Application>())
         }
         _uploadStatus.value = UploadStatus.Idle
         _stagedItems.value = emptyList()

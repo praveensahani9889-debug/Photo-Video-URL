@@ -34,6 +34,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
+import com.praveen.studio.photovideo.url.data.model.TextPostData
+import com.praveen.studio.photovideo.url.ui.screens.hosting.CustomHostingDialog
+import com.praveen.studio.photovideo.url.ui.screens.textpost.TextPostEditorDialog
+import com.praveen.studio.photovideo.url.ui.screens.website.TerminalDialog
+import com.praveen.studio.photovideo.url.ui.screens.website.WebsiteChooserDialog
+import com.praveen.studio.photovideo.url.ui.screens.website.WebsiteReviewDialog
 import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.remote.IncomingIntentManager
 import com.praveen.studio.photovideo.url.ui.components.ApkOptionDialog
@@ -75,6 +81,12 @@ fun HomeScreen(
     // In-app picker (direct storage permission). pickerTrial = the single free-trial photo.
     var pickerCategory by remember { mutableStateOf<MediaCategory?>(null) }
     var pickerTrial by remember { mutableStateOf(false) }
+    // Text post: the editor, and the text the user wrote (kept until the post is published, so nothing is lost)
+    var showTextEditor by remember { mutableStateOf(false) }
+    var textInProgress by remember { mutableStateOf<TextPostData?>(null) }
+    // Website publish: the two-way chooser and the terminal
+    var showWebsiteChooser by remember { mutableStateOf(false) }
+    var showTerminal by remember { mutableStateOf(false) }
 
     // Every "set up Supabase" button opens Settings AND the full setup dialog there
     val openSetup: () -> Unit = {
@@ -158,6 +170,13 @@ fun HomeScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         uri?.let { viewModel.handleSelectedUris(listOf(it), MediaCategory.FILES) }
+    }
+
+    // 4b. Website Publish > Upload file: index.html or a ZIP with the whole website
+    val websitePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.loadWebsiteFile(it) }
     }
 
     // 5. Direct APK File Picker from storage
@@ -349,6 +368,27 @@ fun HomeScreen(
                 )
             }
 
+            // Category Card 6: Text post (written in the app, saved ONLY in the database: no storage is needed)
+            item {
+                UploadCategoryCard(
+                    category = MediaCategory.TEXT,
+                    selectedCount = 0,
+                    needsSetup = false,
+                    onClick = { showTextEditor = true }
+                )
+            }
+
+            // Category Card 7: Website publish (needs the user's own Supabase: the files are stored there)
+            item {
+                UploadCategoryCard(
+                    category = MediaCategory.WEB,
+                    selectedCount = 0,
+                    needsSetup = !isConfigured,
+                    onSetupNeeded = { setupPromptFor = MediaCategory.WEB },
+                    onClick = { showWebsiteChooser = true }
+                )
+            }
+
             item {
                 Spacer(modifier = Modifier.height(30.dp))
             }
@@ -432,7 +472,8 @@ fun HomeScreen(
     val firstDemo by viewModel.firstDemoUpload.collectAsState()
     val isFirstDemoSuccess = successStatus?.record?.isFreeTier == true && firstDemo
     val waitingForAd = successKey != null && adHandledFor != successKey &&
-        AdsConfigProvider.current.shouldShowInterstitialAds && !isFirstDemoSuccess
+        AdsConfigProvider.current.shouldShowInterstitialAds && !isFirstDemoSuccess &&
+        successStatus?.record?.textPost == null
     LaunchedEffect(successKey) {
         if (successKey != null && waitingForAd) {
             val activity = AdsActivity.find(context)
@@ -448,9 +489,11 @@ fun HomeScreen(
     // For the free demo photos only the first one gets it (they live in the developer's storage); not when switched off in Firebase.
     var advancedHandledFor by remember { mutableStateOf<String?>(null) }
     val control by AppControlStore.state.collectAsState()
+    val isWebsiteSuccess = successStatus?.record?.type == "web"
     val showAdvanced = successStatus != null && successKey != null && !waitingForAd &&
-        advancedHandledFor != successKey && control.advancedOptionsEnabled &&
-        !successStatus.record.isDemo && (!successStatus.record.isFreeTier || isFirstDemoSuccess)
+        advancedHandledFor != successKey && (control.advancedOptionsEnabled || isWebsiteSuccess) &&
+        !successStatus.record.isDemo && (!successStatus.record.isFreeTier || isFirstDemoSuccess) &&
+        successStatus.record.textPost == null
 
     val shownStatus = if ((waitingForAd || showAdvanced) && successStatus != null) {
         // "creating the link" stays on screen while the ad loads / plays and while the options page is open
@@ -460,12 +503,134 @@ fun HomeScreen(
     }
 
     if (showAdvanced && successStatus != null) {
+        if (isWebsiteSuccess) {
+            // a website has no Advanced options: its own hosting address and how long it stays online (once)
+            CustomHostingDialog(
+                record = successStatus.record,
+                onFinished = { updated ->
+                    advancedHandledFor = successKey
+                    if (updated != null) viewModel.replaceSuccessRecord(updated)
+                }
+            )
+        } else {
+            AdvancedOptionsDialog(
+                record = successStatus.record,
+                loadExisting = false,
+                onFinished = { updated ->
+                    advancedHandledFor = successKey
+                    if (updated != null) viewModel.replaceSuccessRecord(updated)
+                }
+            )
+        }
+    }
+
+    // ---- Website publish: chooser -> (file | terminal) -> review -> upload -> ad -> Custom hosting ----
+    val websiteDraft by viewModel.websiteDraft.collectAsState()
+    val websiteBusy by viewModel.websiteBusy.collectAsState()
+    val websiteError by viewModel.websiteError.collectAsState()
+
+    if (showWebsiteChooser) {
+        WebsiteChooserDialog(
+            onUploadFile = {
+                showWebsiteChooser = false
+                launchPicker { websitePicker.launch(arrayOf("*/*")) }
+            },
+            onTerminal = {
+                showWebsiteChooser = false
+                showTerminal = true
+            },
+            onDismiss = { showWebsiteChooser = false }
+        )
+    }
+    if (showTerminal) {
+        TerminalDialog(
+            busy = websiteBusy,
+            onClose = { showTerminal = false },
+            onUpload = { texts -> viewModel.loadWebsiteTexts(texts) }
+        )
+    }
+    if (websiteBusy && !showTerminal) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {},
+            title = { Text("Opening your website...") },
+            text = { androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
+        )
+    }
+    websiteDraft?.let { draft ->
+        WebsiteReviewDialog(
+            draft = draft,
+            onPublish = { name ->
+                showTerminal = false
+                viewModel.confirmWebsite(name)
+            },
+            onCancel = { viewModel.discardWebsite() }
+        )
+    }
+    websiteError?.let { message ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { viewModel.clearWebsiteError() },
+            title = { Text("Website") },
+            text = { Text(message) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { viewModel.clearWebsiteError() }) { Text("OK") }
+            }
+        )
+    }
+
+    // ---- Text post: editor -> ad -> Advanced options -> Publish (saved only in the database) ----
+    val textDraft by viewModel.textDraft.collectAsState()
+    var textAdDoneFor by remember { mutableStateOf<String?>(null) }
+
+    // the published post is no longer "in progress"
+    LaunchedEffect(successKey) {
+        if (successStatus?.record?.textPost != null) textInProgress = null
+    }
+
+    if (showTextEditor) {
+        TextPostEditorDialog(
+            initial = textInProgress,
+            onDismiss = { showTextEditor = false },
+            onNext = { post ->
+                textInProgress = post
+                showTextEditor = false
+                viewModel.startTextPost(post)
+            }
+        )
+    }
+
+    // 1. the ad (same automatic ad as after an upload); whatever happens with it, the next step follows
+    LaunchedEffect(textDraft?.shortId) {
+        val draft = textDraft ?: return@LaunchedEffect
+        if (AdsConfigProvider.current.shouldShowInterstitialAds) {
+            val activity = AdsActivity.find(context)
+            if (activity == null) {
+                textAdDoneFor = draft.shortId
+            } else {
+                AdsManager.showInterstitialThenContinue(activity) { textAdDoneFor = draft.shortId }
+            }
+        } else {
+            textAdDoneFor = draft.shortId
+        }
+    }
+
+    // 2. Advanced options (all optional) and 3. Publish; when the options are switched off in Firebase: publish at once
+    val draftNow = textDraft
+    val textAdFinished = draftNow != null && textAdDoneFor == draftNow.shortId
+    LaunchedEffect(textAdFinished, draftNow?.shortId, control.advancedOptionsEnabled) {
+        if (draftNow != null && textAdFinished && !control.advancedOptionsEnabled) {
+            viewModel.publishTextPost(draftNow)
+        }
+    }
+    if (draftNow != null && textAdFinished && control.advancedOptionsEnabled) {
         AdvancedOptionsDialog(
-            record = successStatus.record,
+            record = draftNow,
             loadExisting = false,
-            onFinished = { updated ->
-                advancedHandledFor = successKey
-                if (updated != null) viewModel.replaceSuccessRecord(updated)
+            publishMode = true,
+            onFinished = { prepared -> viewModel.publishTextPost(prepared ?: draftNow) },
+            onCancel = {
+                viewModel.cancelTextPost()
+                showTextEditor = true
             }
         )
     }

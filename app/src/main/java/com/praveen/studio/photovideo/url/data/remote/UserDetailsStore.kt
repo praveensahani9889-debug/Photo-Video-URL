@@ -75,6 +75,8 @@ object UserDetailsStore {
             MediaCategory.DOCUMENTS -> current.copy(totalDocumentsUpload = current.totalDocumentsUpload + 1)
             MediaCategory.FILES -> current.copy(totalFilesUpload = current.totalFilesUpload + 1)
             MediaCategory.APKS -> current.copy(totalApksUpload = current.totalApksUpload + 1)
+            MediaCategory.TEXT -> current
+            MediaCategory.WEB -> current
         }.let { if (isFreeTier) it.copy(freeTierUploadsUsed = it.freeTierUploadsUsed + 1) else it }
         _state.value = updated
         persist(context, installationId, updated)

@@ -12,6 +12,7 @@ import com.praveen.studio.photovideo.url.data.local.RecoveryStore
 import com.praveen.studio.photovideo.url.data.remote.HistoryRemoteStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.praveen.studio.photovideo.url.domain.util.HostingRules
 import com.praveen.studio.photovideo.url.domain.util.LinkDraft
 import com.praveen.studio.photovideo.url.domain.util.LinkDraftMapper
 import com.praveen.studio.photovideo.url.domain.util.LinkRules
@@ -55,6 +56,73 @@ class LinkOptionsRepository(
             is PublicLinkLookup.Found -> lookup.record.options
             else -> record.options
         }
+    }
+
+    /** "Check availability" of a website address (name + ending), without writing anything. */
+    suspend fun checkHosting(name: String, suffix: String): NameCheck {
+        HostingRules.problem(name, suffix, AppControlStore.current.blockedWords)?.let { return NameCheck.Invalid(it) }
+        return firebase.isLinkNameFree(HostingRules.key(name, suffix)).fold(
+            onSuccess = { free -> if (free) NameCheck.Free else NameCheck.Taken },
+            onFailure = { NameCheck.Error(it.message ?: "Could not check the name.") }
+        )
+    }
+
+    /**
+     * Website hosting, chosen ONCE right after the upload: the address (name + ending, optional: without a name the
+     * automatic https://ivu.gt.tc/web_... stays) and how long the site stays online ([days], 0 = never expires; kept
+     * inside the limits the developer set on the server). After this it cannot be changed again.
+     */
+    suspend fun applyHosting(record: UploadRecord, name: String, suffix: String, days: Int): Result<UploadRecord> {
+        val control = AppControlStore.current
+        var newId = record.shortId
+        var displayUrl: String? = null
+        if (name.isNotBlank()) {
+            HostingRules.problem(name, suffix, control.blockedWords)?.let {
+                return Result.failure(IllegalArgumentException(it))
+            }
+            val key = HostingRules.key(name, suffix)
+            val free = firebase.isLinkNameFree(key).getOrElse { return Result.failure(it) }
+            if (!free) return Result.failure(IllegalArgumentException("This address is already taken. Choose another one."))
+            newId = key
+            displayUrl = HostingRules.url(name, suffix)
+        }
+        val maxDays = control.websiteMaxExpiryDays
+        val safeDays = when {
+            maxDays > 0 && (days <= 0 || days > maxDays) -> maxDays
+            days < 0 -> 0
+            else -> days
+        }
+        val expiresAt = if (safeDays > 0) System.currentTimeMillis() + safeDays * 86_400_000L else 0L
+        val saved = firebase.applyLinkOptions(installationId, record, newId, LinkOptions(expiresAt = expiresAt), displayUrl)
+        saved.onSuccess { updated ->
+            preferencesManager.replaceRecord(record.shortId, updated)
+            HistoryRemoteStore.replace(record.shortId, updated)
+            withContext(Dispatchers.IO) { RecoveryStore.renameUpload(record.shortId, updated) }
+        }
+        return saved
+    }
+
+    /**
+     * Same checks as [apply], but NOTHING is written: used by a text post, which is saved in the database only when
+     * it is published (the Advanced options page opens before that). Returns the record with the chosen address and
+     * options.
+     */
+    suspend fun prepare(record: UploadRecord, draft: LinkDraft, existing: LinkOptions): Result<UploadRecord> {
+        val typed = LinkSlugRules.normalize(draft.slug)
+        val newSlug = if (typed.isEmpty()) record.shortId else typed
+        if (newSlug != record.shortId) {
+            LinkSlugRules.problem(newSlug, AppControlStore.current.blockedWords)?.let {
+                return Result.failure(IllegalArgumentException(it))
+            }
+            val free = firebase.isLinkNameFree(newSlug).getOrElse { return Result.failure(it) }
+            if (!free) return Result.failure(IllegalArgumentException("This name is already taken. Choose another one."))
+        }
+        val options = when (val mapped = LinkDraftMapper.toOptions(draft, existing)) {
+            is LinkDraftMapper.Result.Ok -> mapped.options
+            is LinkDraftMapper.Result.Error -> return Result.failure(IllegalArgumentException(mapped.message))
+        }
+        val fullUrl = LinkSlugRules.fullUrl(newSlug)
+        return Result.success(record.copy(shortId = newSlug, publicUrl = fullUrl, shortUrl = fullUrl, options = options))
     }
 
     /**

@@ -261,7 +261,7 @@ private fun AccountAnalysisCard(
                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
             )
             Spacer(Modifier.height(4.dp))
-            MediaCategory.entries.forEach { category ->
+            MediaCategory.entries.filter { it != MediaCategory.TEXT }.forEach { category ->
                 val ofType = mine.filter { it.fileType.equals(category.title, ignoreCase = true) }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("${category.title}:", style = MaterialTheme.typography.bodySmall)

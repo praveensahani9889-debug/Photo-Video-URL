@@ -35,6 +35,8 @@ sealed interface LinkResult {
     data class Failed(val message: String) : LinkResult
     /** The website itself (https://ivu.gt.tc or one of its pages): shown with the banner of the service. */
     data class Website(val url: String, val title: String, val text: String) : LinkResult
+    /** A password protected link or a text post: opens in the full page viewer (password page, colours, button ...). */
+    data class OpenViewer(val shortId: String) : LinkResult
 }
 
 /** The pages of the website https://ivu.gt.tc (path -> title and a short line). */
@@ -169,13 +171,13 @@ class LinkResolver(
                 if (content.type == "document") FoundKind.DOCUMENT else FoundKind.FILE,
                 source
             )
+            is ViewerContent.TextPost -> LinkResult.OpenViewer(shortId)
             ViewerContent.Invalid -> LinkResult.Failed("This is not a valid Photo Video URL link.")
             ViewerContent.NotFound -> LinkResult.Failed("This link was not found. It may have been deleted.")
             ViewerContent.Disabled -> LinkResult.Failed("This link has been disabled.")
             ViewerContent.Expired -> LinkResult.Failed("This link has expired and is no longer available.")
             ViewerContent.ViewLimitReached -> LinkResult.Failed("This link reached its view limit and is no longer available.")
-            is ViewerContent.PasswordRequired ->
-                LinkResult.Failed("This link is password protected. Open it in the viewer to enter the password.")
+            is ViewerContent.PasswordRequired -> LinkResult.OpenViewer(shortId)
             ViewerContent.Unsupported -> LinkResult.Failed("This file type is not supported.")
             ViewerContent.Unavailable ->
                 LinkResult.Failed("The server cannot be reached right now. Check your internet and try again.")

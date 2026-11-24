@@ -3,7 +3,7 @@
     "public_links": {
       "$id": {
         ".read": true,
-        ".write": "!data.exists() || !newData.exists() || (newData.child('type').val() === data.child('type').val() && newData.child('supabaseUrl').val() === data.child('supabaseUrl').val() && newData.child('mimeType').val() === data.child('mimeType').val())",
+        ".write": "!data.exists() || !newData.exists() || (newData.child('type').val() === data.child('type').val() && newData.child('supabaseUrl').val() === data.child('supabaseUrl').val() && newData.child('mimeType').val() === data.child('mimeType').val() && newData.child('body').val() === data.child('body').val())",
         "views": {
           ".write": "data.parent().exists() && newData.isNumber() && newData.val() == (data.exists() ? data.val() : 0) + 1",
           ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -48,6 +48,36 @@
         },
         "allowDownload": {
           ".validate": "newData.isBoolean()"
+        },
+        "topic": {
+          ".validate": "newData.isString() && newData.val().length <= 80"
+        },
+        "body": {
+          ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 5000"
+        },
+        "textColor": {
+          ".validate": "newData.isString() && newData.val().matches(/^#[0-9A-Fa-f]{6}$/)"
+        },
+        "textBg": {
+          ".validate": "newData.isString() && newData.val().matches(/^#[0-9A-Fa-f]{6}$/)"
+        },
+        "textFont": {
+          ".validate": "newData.isString() && (newData.val() === 'sans' || newData.val() === 'serif' || newData.val() === 'mono' || newData.val() === 'cursive')"
+        },
+        "textSize": {
+          ".validate": "newData.isNumber() && newData.val() >= 10 && newData.val() <= 48"
+        },
+        "textBold": {
+          ".validate": "newData.isBoolean()"
+        },
+        "textItalic": {
+          ".validate": "newData.isBoolean()"
+        },
+        "textUnderline": {
+          ".validate": "newData.isBoolean()"
+        },
+        "textAlign": {
+          ".validate": "newData.isString() && (newData.val() === 'left' || newData.val() === 'center' || newData.val() === 'right')"
         }
       }
     },

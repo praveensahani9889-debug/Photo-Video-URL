@@ -2,6 +2,7 @@ package com.praveen.studio.photovideo.url.domain.util
 
 import com.praveen.studio.photovideo.url.data.model.PublicLinkLookup
 import com.praveen.studio.photovideo.url.data.model.PublicLinkRecord
+import com.praveen.studio.photovideo.url.data.model.TextPostData
 import java.net.URI
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -26,6 +27,9 @@ sealed interface ViewerContent {
     data class Image(val url: String, val name: String, val mime: String) : ViewerContent
     data class Video(val url: String, val name: String, val mime: String) : ViewerContent
     data class Pdf(val url: String, val name: String, val downloadUrl: String?) : ViewerContent
+
+    /** A text post (topic + styled text): there is no file to download. */
+    data class TextPost(val post: TextPostData) : ViewerContent
 
     /** 410 - the owner set an expiry time and it has passed. */
     data object Expired : ViewerContent
@@ -53,11 +57,11 @@ object LinkRules {
 
     const val SITE_URL = "https://ivu.gt.tc"
 
-    private val ID_REGEX = Regex("^(image|video|document|file|apk)_[A-Za-z0-9_-]{3,64}$")
+    private val ID_REGEX = Regex("^(image|video|document|file|apk|text)_[A-Za-z0-9_-]{3,64}$")
 
     /** A custom address chosen by the owner: ivu.gt.tc/<name> (no type prefix; the type is saved in the link). */
     private val CUSTOM_REGEX = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{2,29}$")
-    private val FILE_TYPES = setOf("image", "video", "document", "file", "apk")
+    private val FILE_TYPES = setOf("image", "video", "document", "file", "apk", "text")
     private val SUPABASE_HOST = Regex("^[a-z0-9]([a-z0-9-]{1,61})[a-z0-9]\\.supabase\\.co$")
     private val FORBIDDEN_URL_CHARS = Regex("[\\u0000-\\u0020\\u007f\"'<>\\\\`]")
     private val DOT_SEGMENT = Regex("(^|/)(\\.|%2e){2}(/|$)", RegexOption.IGNORE_CASE)
@@ -92,10 +96,26 @@ object LinkRules {
         return null
     }
 
+    /** Pages of the website: they always open in the browser, never in the viewer of the app. */
+    val WEBSITE_PAGES = setOf(
+        "about", "features", "how-it-works", "terms", "privacy", "disclaimer", "contact", "faq", "download"
+    )
+
+    /**
+     * The link id of an https://ivu.gt.tc/<path> address that the app can show in its viewer: an automatic id
+     * ("image_AbC123", "text_AbC123") or a custom address ("/praveen"). Website pages, hosted websites (/web_...),
+     * thumbnails and raw file addresses give null (the browser opens them).
+     */
+    fun viewerIdOfPath(path: String?): String? {
+        val clean = path.orEmpty().trim().removePrefix("/").trimEnd('/').lowercase()
+        if (clean.isEmpty() || clean in WEBSITE_PAGES || clean.startsWith("web_")) return null
+        return parseShortId(path, allowCustom = true)
+    }
+
     /** True for the automatic ids that start with the file type ("image_AbC123"). */
     fun isTypedId(shortId: String): Boolean = ID_REGEX.matches(shortId)
 
-    /** "image", "video", "document", "file" or "apk" (empty for a custom address). */
+    /** "image", "video", "document", "file", "apk" or "text" (empty for a custom address). */
     fun typeOf(shortId: String): String = if (isTypedId(shortId)) shortId.substringBefore('_') else ""
 
     /** Same checks as is_allowed_storage_url() in the website. */
@@ -180,6 +200,13 @@ object LinkRules {
         if (record.options.isExpired()) return ViewerContent.Expired
         if (record.options.isViewLimitReached()) return ViewerContent.ViewLimitReached
         if (record.options.isPasswordProtected && !passwordOk) return ViewerContent.PasswordRequired(shortId, record)
+
+        // a text post has no file: the text itself is saved in the link
+        if (type == "text") {
+            val post = record.textPost ?: return ViewerContent.NotFound
+            return ViewerContent.TextPost(post)
+        }
+
         if (!isAllowedStorageUrl(record.url)) return ViewerContent.NotFound
 
         val name = recordFilename(record, type)

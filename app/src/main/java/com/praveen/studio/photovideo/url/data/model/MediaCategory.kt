@@ -5,6 +5,8 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -55,6 +57,23 @@ enum class MediaCategory(
         shortIdPrefix = "apk_",
         mimeTypeFilter = "application/vnd.android.package-archive",
         allowedExtensions = listOf("apk", "xapk", "apks")
+    ),
+    TEXT(
+        title = "Text Post",
+        description = "Write a styled post: topic, text, style, colour",
+        folderPath = "texts",
+        shortIdPrefix = "text_",
+        mimeTypeFilter = "text/plain",
+        allowedExtensions = emptyList()
+    ),
+    /** A website (like InfinityFree): its files are in Supabase folder web/<id>/, the record type is "web". */
+    WEB(
+        title = "Website",
+        description = "Publish a website: upload files or write code",
+        folderPath = "web",
+        shortIdPrefix = "web_",
+        mimeTypeFilter = "application/zip",
+        allowedExtensions = listOf("zip", "html", "htm")
     );
 
     fun getIcon(): ImageVector = when (this) {
@@ -63,6 +82,8 @@ enum class MediaCategory(
         DOCUMENTS -> Icons.Default.Description
         FILES -> Icons.Default.FolderZip
         APKS -> Icons.Default.Android
+        TEXT -> Icons.Default.TextFields
+        WEB -> Icons.Default.Language
     }
 
     companion object {

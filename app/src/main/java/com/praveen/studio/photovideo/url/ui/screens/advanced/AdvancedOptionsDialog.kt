@@ -108,6 +108,10 @@ fun AdvancedOptionsDialog(
     record: UploadRecord,
     loadExisting: Boolean,
     onFinished: (UploadRecord?) -> Unit,
+    /** Text post: nothing is saved yet; "Publish" (after the options) saves the post in the database. */
+    publishMode: Boolean = false,
+    /** Publish mode: the back button cancels (nothing is published). */
+    onCancel: () -> Unit = {},
     viewModel: AdvancedOptionsViewModel = viewModel()
 ) {
     LaunchedEffect(record.createdAt, record.shortId) { viewModel.start(record, loadExisting) }
@@ -128,14 +132,14 @@ fun AdvancedOptionsDialog(
     val slugLocked = customNameFixed || loadExisting
     // photos and videos are shown on the page: they need no "allow download" switch
     val recordKind = record.type.ifEmpty { record.fileType }.lowercase().removeSuffix("s")
-    val showDownloadSwitch = recordKind != "image" && recordKind != "video"
+    val showDownloadSwitch = recordKind != "image" && recordKind != "video" && recordKind != "text"
 
     val blocked = AppControlStore.current.blockedWords
     // the current address of the link (editing from History) is always fine
     val slugProblem = if (LinkSlugRules.normalize(draft.slug) == record.shortId) null else LinkSlugRules.problem(draft.slug, blocked)
 
     Dialog(
-        onDismissRequest = { if (!saving) onFinished(null) },
+        onDismissRequest = { if (!saving) { if (publishMode) onCancel() else onFinished(null) } },
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)
     ) {
         Surface(
@@ -162,7 +166,7 @@ fun AdvancedOptionsDialog(
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                         )
                         Text(
-                            text = "Everything here is optional. Skip to keep the default link.",
+                            text = if (publishMode) "Everything here is optional. Then press Publish." else "Everything here is optional. Skip to keep the default link.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -561,9 +565,12 @@ fun AdvancedOptionsDialog(
                         modifier = Modifier
                             .weight(1f)
                             .testTag("btn_advanced_skip")
-                    ) { Text(if (loadExisting) "Close" else "Skip") }
+                    ) { Text(if (loadExisting) "Close" else if (publishMode) "Publish without options" else "Skip") }
                     Button(
-                        onClick = { viewModel.apply { updated -> onFinished(updated) } },
+                        onClick = {
+                            if (publishMode) viewModel.prepare { prepared -> onFinished(prepared) }
+                            else viewModel.apply { updated -> onFinished(updated) }
+                        },
                         enabled = !saving && !loading,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -574,7 +581,7 @@ fun AdvancedOptionsDialog(
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
                             Spacer(Modifier.width(6.dp))
                         }
-                        Text(if (loadExisting) "Save" else "Apply & continue")
+                        Text(if (loadExisting) "Save" else if (publishMode) "Apply & Publish" else "Apply & continue")
                     }
                 }
             }

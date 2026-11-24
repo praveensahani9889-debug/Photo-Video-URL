@@ -28,16 +28,19 @@ object IncomingIntentManager {
 
         Log.d(TAG, "Incoming intent action: $action, data: $data, type: ${intent.type}")
 
-        // 1. Check Deep Link for domain ivu.gt.tc. Only real media ids (image_..., video_..., ...) are
-        //    accepted - the same rule the website uses - so other pages never open the viewer.
+        // 1. Deep link for ivu.gt.tc. Every address of the website is offered to the app:
+        //    - a link (image_..., video_..., text_... or a custom address such as /praveen) opens in the viewer;
+        //    - the pages of the website (/about, /privacy ...) are handed to the browser again.
         if (Intent.ACTION_VIEW == action && data != null) {
             val host = data.host.orEmpty().lowercase()
             if (host == "ivu.gt.tc" || host.endsWith(".ivu.gt.tc")) {
-                val shortId = LinkRules.parseShortId(data.path)
+                val shortId = LinkRules.viewerIdOfPath(data.path)
                     ?: LinkRules.parseShortId(data.fragment)
                 if (shortId != null) {
                     Log.d(TAG, "Deep link detected with shortId: $shortId")
                     _deepLinkShortId.value = shortId
+                } else {
+                    openInBrowser(context, data)
                 }
                 return
             }
@@ -112,6 +115,24 @@ object IncomingIntentManager {
 
     fun clearSharedMedia() {
         _sharedMedia.value = null
+    }
+
+    /** Search (a password protected link or a text post): the full page viewer opens, like the website. */
+    fun openViewer(shortId: String) {
+        _deepLinkShortId.value = shortId
+    }
+
+    /** Gives an address back to the browser (the system browser, never this app again). */
+    private fun openInBrowser(context: Context, uri: Uri) {
+        try {
+            val intent = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_BROWSER).apply {
+                data = uri
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (t: Throwable) {
+            Log.w(TAG, "No browser for $uri: ${t.message}")
+        }
     }
 
     fun clearDeepLink() {

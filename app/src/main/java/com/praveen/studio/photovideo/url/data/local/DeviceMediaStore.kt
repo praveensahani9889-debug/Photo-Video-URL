@@ -98,6 +98,8 @@ object DeviceMediaStore {
                     MediaCategory.DOCUMENTS -> queryFiles(context, DOCUMENT_EXTENSIONS, false)
                     MediaCategory.APKS -> queryFiles(context, MediaCategory.APKS.allowedExtensions, false)
                     MediaCategory.FILES -> queryFiles(context, FILE_EXTENSIONS, allFileTypes)
+                    MediaCategory.TEXT -> emptyList()
+                    MediaCategory.WEB -> emptyList()
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "Could not read ${category.name}: ${t.message}")

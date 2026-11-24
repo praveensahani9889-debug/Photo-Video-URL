@@ -63,7 +63,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep Link for ivu.gt.tc media links only (/image_..., /video_..., /document_..., /file_..., /apk_...).
+            <!-- Deep Link for ivu.gt.tc media links only (/image_..., /video_..., /document_..., /file_..., /apk_..., /text_...).
                  Info pages such as /privacy or /about keep opening in the browser. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -72,11 +72,10 @@
                 <data android:scheme="https" />
                 <data android:scheme="http" />
                 <data android:host="ivu.gt.tc" />
-                <data android:pathPrefix="/image_" />
-                <data android:pathPrefix="/video_" />
-                <data android:pathPrefix="/document_" />
-                <data android:pathPrefix="/file_" />
-                <data android:pathPrefix="/apk_" />
+                <data android:host="www.ivu.gt.tc" />
+                <!-- every address after the slash: links (/image_..., /text_..., /<custom name>) open in the viewer,
+                     pages of the website (/about ...) are given back to the browser by the app -->
+                <data android:pathPattern="/..*" />
             </intent-filter>
 
             <!-- Share Target: Receive single item from other apps -->

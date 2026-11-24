@@ -103,6 +103,27 @@ class AdvancedOptionsViewModel(application: Application) : AndroidViewModel(appl
         }
     }
 
+    /**
+     * Validates everything WITHOUT saving (text post: it is saved when it is published); [onDone] gets the record
+     * with the chosen address and options.
+     */
+    fun prepare(onDone: (UploadRecord) -> Unit) {
+        val rec = record ?: return
+        if (_saving.value) return
+        viewModelScope.launch {
+            _saving.value = true
+            _error.value = null
+            try {
+                repository.prepare(rec, _draft.value, existing).fold(
+                    onSuccess = { onDone(it) },
+                    onFailure = { _error.value = it.message ?: "Could not check the options." }
+                )
+            } finally {
+                _saving.value = false
+            }
+        }
+    }
+
     /** Validates and saves everything; [onDone] gets the changed link. */
     fun apply(onDone: (UploadRecord) -> Unit) {
         val rec = record ?: return

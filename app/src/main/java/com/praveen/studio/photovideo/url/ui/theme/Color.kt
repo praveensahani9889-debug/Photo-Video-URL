@@ -33,6 +33,8 @@ val CategoryVideos = IndigoSecondary
 val CategoryDocuments = AccentAmber
 val CategoryFiles = AccentEmerald
 val CategoryApks = AccentPink
+val CategoryTexts = Color(0xFF14B8A6)
+val CategoryWebs = Color(0xFF6366F1)
 
 // Dark theme surfaces: deep navy, every layer a little lighter (smooth steps, no harsh jumps)
 val DarkBackground = Color(0xFF070B1A)

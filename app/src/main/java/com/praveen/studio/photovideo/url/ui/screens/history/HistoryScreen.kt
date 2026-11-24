@@ -92,7 +92,7 @@ fun HistoryScreen(
     // Back leaves the delete mode first instead of leaving the History screen
     BackHandler(enabled = selectionMode) { viewModel.cancelSelection() }
 
-    val filterOptions = listOf("All", "Images", "Videos", "Documents", "Files", "APKs")
+    val filterOptions = listOf("All", "Images", "Videos", "Documents", "Files", "APKs", "Texts", "Websites")
 
     Scaffold(
         topBar = {

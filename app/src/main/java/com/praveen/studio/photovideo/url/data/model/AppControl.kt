@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
  *  - maxSupabaseAccounts : how many Supabase projects one user may add (default 5)
  *  - advancedOptionsEnabled : the "Advanced options" page after an upload on / off
  *  - blockedWords : extra words that cannot be used in a custom link (separated by commas)
+ *  - websiteExpiryDays : how long a published website stays online by default (days; 0 = no default expiry)
+ *  - websiteMaxExpiryDays : the longest time a user may choose for a website (days; 0 = no limit)
  *  - maintenance (+ maintenanceMessage) : the app shows "under maintenance" and does not open
  *  - newUpdate + latestVersion + updateLink (+ forceUpdate, updateMessage) : "new update available" dialog
  * Safe defaults are used when a field is missing or the phone is offline.
@@ -27,6 +29,10 @@ data class AppControl(
     val advancedOptionsEnabled: Boolean = true,
     /** Extra words that cannot be used in a custom link, on top of the built-in list. */
     val blockedWords: List<String> = emptyList(),
+    /** Website publishing: the default time a site stays online (days, 0 = never expires) ... */
+    val websiteExpiryDays: Int = 30,
+    /** ... and the longest time a user may choose (days, 0 = no limit). */
+    val websiteMaxExpiryDays: Int = 365,
     val maintenance: Boolean = false,
     val maintenanceMessage: String = "",
     val newUpdate: Boolean = false,

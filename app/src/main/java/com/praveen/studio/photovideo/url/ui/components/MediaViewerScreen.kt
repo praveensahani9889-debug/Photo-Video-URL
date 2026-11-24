@@ -24,6 +24,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
+import com.praveen.studio.photovideo.url.data.model.TextPostData
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -243,6 +250,19 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
 
             is ViewerContent.Video -> VideoViewer(c, Modifier.fillMaxSize())
 
+            is ViewerContent.TextPost -> TextPostViewer(
+                post = c.post,
+                pageColor = ownerColor ?: ViewerBackground,
+                bottomSpace = linkRecord?.options?.let { o ->
+                    when {
+                        o.pageTitle.isNotBlank() || o.pageMessage.isNotBlank() -> if (o.hasButton) 260.dp else 190.dp
+                        o.hasButton -> 100.dp
+                        else -> 24.dp
+                    }
+                } ?: 24.dp,
+                modifier = Modifier.fillMaxSize()
+            )
+
             is ViewerContent.Pdf -> PdfViewer(
                 shortId = shortId,
                 content = c,
@@ -329,26 +349,70 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
             )
         }
 
-        // Button under the file (Advanced options > Action button), shown when the file itself is shown
+        // Like the website: under the file the owner's title + message, and the button at the bottom center
+        // (Advanced options > Page title / Message / Action button). Shown when the file itself is shown.
         val shown = content
-        val buttonOptions = linkRecord?.options
-        if (buttonOptions != null && buttonOptions.hasButton &&
-            (shown is ViewerContent.Image || shown is ViewerContent.Video || shown is ViewerContent.Pdf || shown is ViewerContent.Download)
+        val pageOptions = linkRecord?.options
+        val fileShown = shown is ViewerContent.Image || shown is ViewerContent.Video || shown is ViewerContent.Pdf ||
+            shown is ViewerContent.Download || shown is ViewerContent.TextPost
+        if (pageOptions != null && fileShown &&
+            (pageOptions.hasButton || pageOptions.pageTitle.isNotBlank() || pageOptions.pageMessage.isNotBlank())
         ) {
-            val buttonColor = try {
-                Color(android.graphics.Color.parseColor(buttonOptions.buttonColor.ifBlank { "#0EA5E9" }))
-            } catch (_: Exception) {
-                CyanPrimary
-            }
-            Button(
-                onClick = { AppLinks.open(context, buttonOptions.buttonUrl) },
-                colors = ButtonDefaults.buttonColors(containerColor = buttonColor, contentColor = Color.White),
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 24.dp, vertical = 20.dp)
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(buttonOptions.buttonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (pageOptions.pageTitle.isNotBlank() || pageOptions.pageMessage.isNotBlank()) {
+                    val onPage = ownerColor ?: ViewerBackground
+                    val inkColor = if (onPage.luminance() > 0.5f) Color(0xFF0F172A) else Color.White
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(onPage.copy(alpha = 0.82f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (pageOptions.pageTitle.isNotBlank()) {
+                            Text(
+                                text = pageOptions.pageTitle,
+                                color = inkColor,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        if (pageOptions.pageMessage.isNotBlank()) {
+                            Text(
+                                text = pageOptions.pageMessage,
+                                color = inkColor.copy(alpha = 0.8f),
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = if (pageOptions.pageTitle.isNotBlank()) 4.dp else 0.dp)
+                            )
+                        }
+                    }
+                }
+                if (pageOptions.hasButton) {
+                    val buttonColor = try {
+                        Color(android.graphics.Color.parseColor(pageOptions.buttonColor.ifBlank { "#0EA5E9" }))
+                    } catch (_: Exception) {
+                        CyanPrimary
+                    }
+                    Button(
+                        onClick = { AppLinks.open(context, pageOptions.buttonUrl) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = buttonColor,
+                            contentColor = if (buttonColor.luminance() > 0.5f) Color(0xFF0F172A) else Color.White
+                        ),
+                        modifier = Modifier.padding(top = if (pageOptions.pageTitle.isNotBlank() || pageOptions.pageMessage.isNotBlank()) 12.dp else 0.dp)
+                    ) {
+                        Text(pageOptions.buttonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
         }
 
@@ -397,6 +461,25 @@ fun MediaViewerScreen(shortId: String, onClose: () -> Unit) {
             }
             RewardedActionDialogs(adGate)
         }
+    }
+}
+
+/** A text post: the topic and the text as the owner designed them, scrollable, and the text can be selected. */
+@Composable
+private fun TextPostViewer(post: TextPostData, pageColor: Color, bottomSpace: Dp, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .statusBarsPadding()
+            .padding(top = 60.dp)
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    ) {
+        SelectionContainer {
+            TextPostCard(post = post, pageColor = pageColor, modifier = Modifier.fillMaxWidth())
+        }
+        // room for the owner's button at the bottom and the system bar
+        Spacer(modifier = Modifier.height(bottomSpace))
+        Spacer(modifier = Modifier.navigationBarsPadding())
     }
 }
 

@@ -4,6 +4,47 @@ A production-oriented Android application that enables users to select photos, v
 
 ---
 
+## Website Publish (v23)
+
+A new home card **Website** (needs the user's own Supabase). It opens two choices:
+
+* **Upload file**: one `index.html`, or a **ZIP** with the whole site (index.html at the top, or inside one folder).
+  The ZIP is opened in the background (`WebsiteBuilder`): only static website files are accepted (html, css, js, json,
+  images, fonts, audio, video, pdf), file names may use only letters, numbers, `. _ -`, up to 300 files / 60 MB / 25 MB
+  per file. Files that do not fit are listed on the review page and left out. Every file is uploaded on its own to
+  Supabase `web/<id>/...` with the right content type, because the website serves each file from its own address.
+* **Terminal**: a premium terminal: code editor with line numbers and colours (html / css / js), file tabs, quick keys,
+  Paste / Copy / Clear, **Run** (preview inside the app, nothing is uploaded, JS console lines show in the terminal) and a
+  command line (`help ls cat new open rm mv run size template clear upload`). **Upload** sends the files into the same
+  pipeline.
+
+Then: review (name) -> upload -> ad -> **Custom hosting** (instead of Advanced options) -> result page (QR / share / copy).
+
+**Custom hosting** (once, cannot be changed later; Skip keeps the automatic `ivu.gt.tc/web_...` address):
+`ivu.gt.tc/` (fixed) + a free name + one of the fixed endings
+(`.com .in .org .net .ai .co .my .free .ivu .ivu.com .p .s .html .abcd .app .site .online .tech .store .blog .live .xyz .dev .me .page`).
+Names must be 3 to 30 letters / numbers / `-`; reserved and abusive names (app, info, abuse, admin, brands ...) are refused
+(`HostingRules`, `BlockedWords`, plus the words in Firebase `app/backend/blockedWords`). Firebase keys cannot contain
+dots, so `mysite.ivu.com` is saved as `public_links/mysite,ivu,com`.
+
+**Expiry**: set by the developer in Firebase `app/backend`: `websiteExpiryDays` (default time online, 30; 0 = never) and
+`websiteMaxExpiryDays` (the longest a user may choose, 365; 0 = no limit). The user can choose another time in the
+Custom hosting page; "Skip" keeps the default. The app deletes the whole folder from Supabase when the site expires or
+is deleted in History (`SupabaseStorageClient.deleteFolder`). A website has no edit pencil in History.
+
+The website (PHP) serves these addresses too: see `ivu-htdocs` v6 (`hosting_suffixes` in `config/site.php`, a rewrite rule
+in `.htaccess`, `parse_hosting_path()`). Keep the lists of endings in the app and on the website identical.
+
+## Deep links, Search and History (v22)
+
+* **Deep link**: every address of `ivu.gt.tc` (`/image_...`, `/text_...`, a custom name such as `/praveen`) is offered to the
+  app, so when the app is installed Android offers "open with Photo Video URL". Pages of the website (`/about`, `/privacy`,
+  ...) are given back to the browser by the app (`LinkRules.viewerIdOfPath`).
+* **Search**: a password protected link or a text post opens the full page viewer inside the app (password page, page
+  colour, title + message, button), like the website.
+* **History**: the edit pencil (Advanced options) is shown only on a link where Advanced options were really used
+  (saved options or its own address). A link created with "Skip" has no pencil.
+
 ## 📱 Project Identity
 
 - **Application Name:** Photo Video URL
@@ -415,6 +456,26 @@ it no longer opens the browser / Supabase page.
   once and then tried on the other saved projects; an error is shown only when all of them failed.
 * **Blocked names:** many more abusive words, impersonation names and every page / folder name of the website
   (`features`, `disclaimer`, `how-it-works`, `thumb`, `config`, `cache`, `errors`, `web_...`).
+
+## 🆕 Text post (write a post, saved only in the database)
+
+A new card **Text Post** on the home screen (next to Images, Videos, Documents, Files, APKs). It needs no Supabase and
+uploads no file: the post is saved **only in Firebase**.
+
+Steps: write a **topic** and a **text** (live preview) -> choose a quick theme or design it yourself (font, size, bold /
+italic / underline, alignment, text colour, background colour, own `#RRGGBB`) -> **Next** -> the automatic ad -> the
+**Advanced options** page (address, expiry, password, view limit ... all optional) -> **Publish** -> result page with the
+link, copy, share and QR.
+
+Firebase: the link id starts with `text_` (or a custom address). Nodes:
+* `public_links/<id>`: `type = "text"`, `mimeType = "text/plain"`, `topic`, `body`, `textColor`, `textBg`, `textFont`
+  (`sans|serif|mono|cursive`), `textSize`, `textBold`, `textItalic`, `textUnderline`, `textAlign`, plus the usual option
+  keys (`expiresAt`, `maxViews`, `bgColor`, ...). There is no `supabaseUrl`.
+* `user/<installationId>/texts/<id>`: the History entry (same fields).
+
+The app opens `https://ivu.gt.tc/text_...` links in its own viewer. **The website (PHP) must learn the new type
+`text` before these links open in a browser.** Publish the updated `firebase-rules.json` too (it validates the new fields
+and stops a text post from being overwritten).
 
 ## 🆕 Version 2.8.0 — Advanced link options (custom address, expiry, password, view limit, page design)
 

@@ -10,6 +10,7 @@ import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.SelectedMediaItem
 import com.praveen.studio.photovideo.url.data.model.SupabaseAccount
 import com.praveen.studio.photovideo.url.data.model.SupabaseConfig
+import com.praveen.studio.photovideo.url.data.model.TextPostData
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.data.model.UploadStatus
 import com.praveen.studio.photovideo.url.data.model.UserDetails
@@ -20,11 +21,14 @@ import com.praveen.studio.photovideo.url.data.remote.IdentityManager
 import com.praveen.studio.photovideo.url.data.remote.PublicAccess
 import com.praveen.studio.photovideo.url.data.remote.SupabaseStorageClient
 import com.praveen.studio.photovideo.url.data.remote.UserDetailsStore
+import com.praveen.studio.photovideo.url.domain.util.WebsiteBuilder
+import com.praveen.studio.photovideo.url.domain.util.WebsiteDraft
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
+import java.io.FileInputStream
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -364,6 +368,273 @@ class UploadRepository(
         UserDetailsStore.onUploadSucceeded(context, installationId, item.category, item.isTrial)
         activeAccount?.let { SupabaseAccountManager.recordUpload(context, it.id, item.sizeBytes) }
         send(UploadStatus.Success(record, totalItems))
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * Publishes a WEBSITE: every file of [draft] is uploaded to the user's own Supabase into the folder web/<id>/ (the
+     * website serves each file from its own address), then ONE record is saved in Firebase (type "web", pointing at
+     * index.html). Needs the user's Supabase; it never uses the free demo storage.
+     */
+    fun uploadWebsite(draft: WebsiteDraft): Flow<UploadStatus> = channelFlow {
+        val startTime = System.currentTimeMillis()
+        val now = Date()
+        send(UploadStatus.Preparing(draft.name))
+
+        if (draft.files.isEmpty()) {
+            send(UploadStatus.Failed(draft.name, "There are no website files to upload.", retryable = false))
+            return@channelFlow
+        }
+        val account = SupabaseAccountManager.pickForUpload(context, draft.totalBytes)
+        if (account == null) {
+            val message = if (SupabaseAccountManager.hasUsableAccount(context)) {
+                "All your Supabase storages are full. Add another Supabase in Settings or delete some uploads."
+            } else {
+                "Supabase is not set up. Open Settings and add your Supabase project URL and anon key."
+            }
+            send(UploadStatus.Failed(draft.name, message, retryable = false))
+            return@channelFlow
+        }
+        val config = account.config
+
+        val shortId = try {
+            firebaseDbManager.generateUniqueShortId(MediaCategory.WEB)
+        } catch (e: Exception) {
+            "${MediaCategory.WEB.shortIdPrefix}${UUID.randomUUID().toString().take(7)}"
+        }
+        val folder = "${MediaCategory.WEB.folderPath}/$shortId"
+        val total = draft.totalBytes.coerceAtLeast(1L)
+        // the main page goes last, so the site is complete when its first page appears
+        val ordered = draft.files.sortedBy { if (it.path == draft.entry) 1 else 0 }
+        var doneBytes = 0L
+        var entryUrl = ""
+        var bucket = config.bucketName
+
+        suspend fun cleanUp() {
+            try {
+                supabaseClient.deleteFolder(config, bucket, folder)
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+            }
+        }
+
+        for ((index, file) in ordered.withIndex()) {
+            val onDisk = draft.fileOf(file)
+            val dirPart = file.path.substringBeforeLast('/', "")
+            val targetFolder = if (dirPart.isEmpty()) folder else "$folder/$dirPart"
+            val leaf = file.path.substringAfterLast('/')
+            val label = "${draft.name} (${index + 1}/${ordered.size})"
+
+            var result: Result<SupabaseStorageClient.UploadResult> = Result.failure(IllegalStateException("not started"))
+            for (attempt in 1..2) {
+                result = supabaseClient.uploadFile(
+                    config = config,
+                    openStream = { FileInputStream(onDisk) },
+                    cleanFileName = leaf,
+                    folderPath = targetFolder,
+                    mimeType = file.mime,
+                    totalBytes = file.size
+                ) { written, _, speedKBps ->
+                    val sofar = doneBytes + written
+                    trySend(
+                        UploadStatus.Uploading(
+                            fileName = label,
+                            bytesUploaded = sofar,
+                            totalBytes = total,
+                            progress = (sofar.toFloat() / total).coerceIn(0f, 1f),
+                            speedKBps = speedKBps,
+                            elapsedSeconds = (System.currentTimeMillis() - startTime) / 1000,
+                            currentItemIndex = index + 1,
+                            totalItems = ordered.size
+                        )
+                    )
+                }
+                if (result.isSuccess) break
+                val message = result.exceptionOrNull()?.message.orEmpty()
+                if (message.startsWith(SupabaseStorageClient.TOO_LARGE_PREFIX) ||
+                    message.startsWith(SupabaseStorageClient.STORAGE_FULL_PREFIX)
+                ) break
+                if (attempt < 2) {
+                    delay(1200L)
+                    send(UploadStatus.Preparing(label))
+                }
+            }
+
+            val uploaded = result.getOrNull()
+            if (uploaded == null) {
+                val message = result.exceptionOrNull()?.message ?: "Supabase upload failed"
+                val full = message.startsWith(SupabaseStorageClient.STORAGE_FULL_PREFIX)
+                if (full) SupabaseAccountManager.markFullAndPickNext(context, account.id, draft.totalBytes)
+                cleanUp()
+                send(
+                    UploadStatus.Failed(
+                        draft.name,
+                        "\"${file.path}\" could not be uploaded: $message",
+                        retryable = !message.startsWith(SupabaseStorageClient.TOO_LARGE_PREFIX) && !full
+                    )
+                )
+                return@channelFlow
+            }
+            doneBytes += file.size
+            if (file.path == draft.entry) {
+                entryUrl = uploaded.publicUrl
+                bucket = uploaded.bucket
+            }
+        }
+
+        // A private bucket accepts uploads but the website could not show the pages: tell the user now.
+        if (supabaseClient.checkPublicAccess(entryUrl) == PublicAccess.NOT_PUBLIC) {
+            cleanUp()
+            send(
+                UploadStatus.Failed(
+                    draft.name,
+                    "The files were uploaded, but bucket '$bucket' is not public, so the website would not open. " +
+                        "In Supabase open Storage > your bucket > Edit, turn ON \"Public bucket\" and publish again.",
+                    retryable = false
+                )
+            )
+            return@channelFlow
+        }
+
+        send(UploadStatus.RegisteringMetadata(draft.name, shortId))
+        val publicUrl = "$PUBLIC_DOMAIN/$shortId"
+        val record = UploadRecord(
+            shortId = shortId,
+            ownerInstallationId = installationId,
+            fileName = draft.name,
+            fileType = MediaCategory.WEB.title,
+            type = "web",
+            mimeType = "text/html",
+            fileSize = draft.totalBytes,
+            storageBucket = bucket,
+            storagePath = "$folder/${draft.entry}",
+            originalSupabaseUrl = entryUrl,
+            supabaseUrl = entryUrl,
+            publicUrl = publicUrl,
+            shortUrl = publicUrl,
+            uploadDate = SimpleDateFormat("dd/MM/yyyy", Locale.US).format(now),
+            uploadTime = SimpleDateFormat("hh:mm a", Locale.US).format(now),
+            createdAt = System.currentTimeMillis(),
+            timestamp = System.currentTimeMillis(),
+            uploadDuration = System.currentTimeMillis() - startTime,
+            status = "completed",
+            isDemo = false,
+            isFreeTier = false
+        )
+
+        var dbResult: Result<Unit> = Result.failure(IllegalStateException("Link was not saved"))
+        for (attempt in 1..3) {
+            dbResult = firebaseDbManager.registerUpload(
+                installationId = installationId,
+                record = record,
+                category = MediaCategory.WEB,
+                isFreeTier = false,
+                publicNameOverride = draft.name
+            )
+            if (dbResult.isSuccess) break
+            Log.w(TAG, "Website register attempt $attempt failed: ${dbResult.exceptionOrNull()?.message}")
+            if (FirebaseDatabaseManager.isPermissionDenied(dbResult.exceptionOrNull())) break
+            if (attempt < 3) delay(attempt * 1000L)
+        }
+        if (dbResult.isFailure) {
+            cleanUp()
+            val blockedByRules = FirebaseDatabaseManager.isPermissionDenied(dbResult.exceptionOrNull())
+            send(
+                UploadStatus.Failed(
+                    draft.name,
+                    if (blockedByRules) {
+                        "Firebase refused to save the website link. " + FirebaseDatabaseManager.PERMISSION_DENIED_HINT
+                    } else {
+                        "The website link could not be saved (${dbResult.exceptionOrNull()?.message ?: "unknown error"}). " +
+                            "Check your internet connection and try again."
+                    },
+                    retryable = true
+                )
+            )
+            return@channelFlow
+        }
+
+        preferencesManager.addUploadRecord(record)
+        HistoryRemoteStore.upsert(record)
+        RecoveryStore.addUpload(record)
+        UserDetailsStore.onUploadSucceeded(context, installationId, MediaCategory.WEB, false)
+        SupabaseAccountManager.recordUpload(context, account.id, draft.totalBytes)
+        WebsiteBuilder.clean(context)
+        send(UploadStatus.Success(record, 1))
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * A new TEXT POST waiting for its next steps (ad, Advanced options, Publish): it already has its address and date,
+     * but nothing is saved anywhere yet.
+     */
+    suspend fun createTextDraft(post: TextPostData): UploadRecord {
+        val shortId = try {
+            firebaseDbManager.generateUniqueShortId(MediaCategory.TEXT)
+        } catch (e: Exception) {
+            "${MediaCategory.TEXT.shortIdPrefix}${UUID.randomUUID().toString().take(7)}"
+        }
+        val now = Date()
+        val publicUrl = "$PUBLIC_DOMAIN/$shortId"
+        val title = post.topic.trim().ifEmpty { post.body.trim().lineSequence().first().take(40) }
+        return UploadRecord(
+            shortId = shortId,
+            ownerInstallationId = installationId,
+            fileName = title,
+            fileType = "Text",
+            type = "text",
+            mimeType = "text/plain",
+            fileSize = post.body.toByteArray(Charsets.UTF_8).size.toLong(),
+            publicUrl = publicUrl,
+            shortUrl = publicUrl,
+            uploadDate = SimpleDateFormat("dd/MM/yyyy", Locale.US).format(now),
+            uploadTime = SimpleDateFormat("hh:mm a", Locale.US).format(now),
+            createdAt = now.time,
+            timestamp = now.time,
+            status = "completed",
+            isDemo = false,
+            isFreeTier = false,
+            textPost = post
+        )
+    }
+
+    /**
+     * PUBLISHES a text post: saved ONLY in the Firebase database (no file, no Supabase). A few quick retries for
+     * flaky connections; the result page follows on success.
+     */
+    fun publishTextPost(record: UploadRecord): Flow<UploadStatus> = channelFlow {
+        send(UploadStatus.RegisteringMetadata(record.fileName, record.shortId))
+
+        var dbResult: Result<Unit> = Result.failure(IllegalStateException("The post was not saved"))
+        for (attempt in 1..3) {
+            dbResult = firebaseDbManager.registerTextPost(installationId, record)
+            if (dbResult.isSuccess) break
+            Log.w(TAG, "Text post attempt $attempt failed: ${dbResult.exceptionOrNull()?.message}")
+            if (FirebaseDatabaseManager.isPermissionDenied(dbResult.exceptionOrNull())) break
+            if (attempt < 3) delay(attempt * 1000L)
+        }
+
+        if (dbResult.isFailure) {
+            val blockedByRules = FirebaseDatabaseManager.isPermissionDenied(dbResult.exceptionOrNull())
+            send(
+                UploadStatus.Failed(
+                    record.fileName,
+                    if (blockedByRules) {
+                        "Firebase refused to save the post. " + FirebaseDatabaseManager.PERMISSION_DENIED_HINT
+                    } else {
+                        "The post could not be published (${dbResult.exceptionOrNull()?.message ?: "unknown error"}). " +
+                            "Check your internet connection and try again."
+                    },
+                    retryable = true
+                )
+            )
+            return@channelFlow
+        }
+
+        // saved copy on the phone + History (so no screen has to ask Firebase again)
+        preferencesManager.addUploadRecord(record)
+        HistoryRemoteStore.upsert(record)
+        RecoveryStore.addUpload(record)
+        send(UploadStatus.Success(record, 1))
     }.flowOn(Dispatchers.IO)
 
     private fun sanitizeFileName(originalName: String, shortId: String): String {

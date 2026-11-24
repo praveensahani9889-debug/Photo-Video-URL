@@ -359,7 +359,7 @@ fun UploadProgressDialog(
 
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = if (record.isDemo) "Demo Simulation Complete" else "Upload Successful!",
+                            text = if (record.isDemo) "Demo Simulation Complete" else if (record.textPost != null) "Post Published!" else "Upload Successful!",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )

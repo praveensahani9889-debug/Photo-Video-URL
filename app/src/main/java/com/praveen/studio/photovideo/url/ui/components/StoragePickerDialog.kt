@@ -174,6 +174,8 @@ private fun categoryLabel(category: MediaCategory): String = when (category) {
     MediaCategory.DOCUMENTS -> "documents"
     MediaCategory.FILES -> "files"
     MediaCategory.APKS -> "APK files"
+    MediaCategory.TEXT -> "text posts"
+    MediaCategory.WEB -> "websites"
 }
 
 @Composable
