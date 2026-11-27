@@ -56,6 +56,7 @@ import com.praveen.studio.photovideo.url.ui.components.StoragePickerDialog
 import com.praveen.studio.photovideo.url.ads.AdsActivity
 import com.praveen.studio.photovideo.url.ads.AdsConfigProvider
 import com.praveen.studio.photovideo.url.ads.AdsManager
+import com.praveen.studio.photovideo.url.data.local.AccountStore
 import com.praveen.studio.photovideo.url.ui.components.UploadCategoryCard
 import com.praveen.studio.photovideo.url.ui.components.UploadProgressDialog
 
@@ -284,7 +285,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = if (isConfigured) {
-                            "Select files to upload directly to Supabase Storage & generate short URLs at ivu.gt.tc"
+                            "Select files to upload and get a short link to share"
                         } else {
                             "Set up your own Supabase to upload photos, videos, documents, files and APKs."
                         },
@@ -489,9 +490,12 @@ fun HomeScreen(
     // For the free demo photos only the first one gets it (they live in the developer's storage); not when switched off in Firebase.
     var advancedHandledFor by remember { mutableStateOf<String?>(null) }
     val control by AppControlStore.state.collectAsState()
+    // Free accounts do not get the Advanced options (password, view limit, custom link name ...)
+    val account by AccountStore.state.collectAsState()
+    val advancedPlan = account.limits.advancedOptions
     val isWebsiteSuccess = successStatus?.record?.type == "web"
     val showAdvanced = successStatus != null && successKey != null && !waitingForAd &&
-        advancedHandledFor != successKey && (control.advancedOptionsEnabled || isWebsiteSuccess) &&
+        advancedHandledFor != successKey && ((control.advancedOptionsEnabled && advancedPlan) || isWebsiteSuccess) &&
         !successStatus.record.isDemo && (!successStatus.record.isFreeTier || isFirstDemoSuccess) &&
         successStatus.record.textPost == null
 
@@ -617,12 +621,12 @@ fun HomeScreen(
     // 2. Advanced options (all optional) and 3. Publish; when the options are switched off in Firebase: publish at once
     val draftNow = textDraft
     val textAdFinished = draftNow != null && textAdDoneFor == draftNow.shortId
-    LaunchedEffect(textAdFinished, draftNow?.shortId, control.advancedOptionsEnabled) {
-        if (draftNow != null && textAdFinished && !control.advancedOptionsEnabled) {
+    LaunchedEffect(textAdFinished, draftNow?.shortId, control.advancedOptionsEnabled, advancedPlan) {
+        if (draftNow != null && textAdFinished && !(control.advancedOptionsEnabled && advancedPlan)) {
             viewModel.publishTextPost(draftNow)
         }
     }
-    if (draftNow != null && textAdFinished && control.advancedOptionsEnabled) {
+    if (draftNow != null && textAdFinished && control.advancedOptionsEnabled && advancedPlan) {
         AdvancedOptionsDialog(
             record = draftNow,
             loadExisting = false,

@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.ui.screens.advanced.AdvancedOptionsDialog
+import com.praveen.studio.photovideo.url.data.local.AccountStore
+import com.praveen.studio.photovideo.url.ui.screens.premium.PremiumNav
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.praveen.studio.photovideo.url.ui.theme.CyanPrimary
 
@@ -304,7 +306,9 @@ fun HistoryScreen(
                             selectionMode = selectionMode,
                             selected = record.shortId in selectedIds,
                             onSelectionToggle = { viewModel.toggleSelected(record.shortId) },
-                            onAdvanced = { advancedFor = it }
+                            onAdvanced = {
+                                if (AccountStore.plan.advancedOptions) advancedFor = it else PremiumNav.show()
+                            }
                         )
                     }
                 }
@@ -329,7 +333,7 @@ fun HistoryScreen(
             text = {
                 Text(
                     "The selected files will be permanently deleted from your Supabase storage and their " +
-                        "short links will be removed from Firebase. This cannot be undone."
+                        "short links will stop working. This cannot be undone."
                 )
             },
             confirmButton = {

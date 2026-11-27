@@ -2,7 +2,9 @@ package com.praveen.studio.photovideo.url.domain.repository
 
 import android.content.Context
 import android.util.Log
+import com.praveen.studio.photovideo.url.data.local.AccountStore
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
+import com.praveen.studio.photovideo.url.data.local.UsageTracker
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.local.RecoveryStore
 import com.praveen.studio.photovideo.url.data.local.SupabaseAccountManager
@@ -76,6 +78,26 @@ class UploadRepository(
     /** True only when the user has set up their own Supabase. */
     fun isSupabaseConfigured(): Boolean = getUserSupabaseConfig() != null
 
+    /**
+     * The daily limit of the account plan: null when one more upload of this type is allowed today, otherwise the
+     * message for the user.
+     */
+    fun dailyLimitMessage(category: MediaCategory): String? {
+        val plan = AccountStore.plan
+        if (UsageTracker.remainingToday(context, category, plan) > 0) return null
+        val limit = plan.dailyLimit(category)
+        return "Today's limit is reached: $limit ${UsageTracker.plural(category)} per day on your plan. " +
+            "Come back tomorrow, or upgrade to Premium in Settings for more."
+    }
+
+    /** The waiting time between two websites: null when a website may be published now. */
+    fun websiteLimitMessage(): String? {
+        val wait = UsageTracker.websiteWaitMillis(context, AccountStore.plan)
+        if (wait <= 0L) return null
+        return "You can publish your next website in ${UsageTracker.formatWait(wait)}. " +
+            "Upgrade to Premium in Settings to publish more often."
+    }
+
     /** Counters and free-trial numbers. Firebase is asked only when the saved copy is stale. */
     suspend fun getUserDetails(): UserDetails {
         refreshUserDetails()
@@ -98,6 +120,12 @@ class UploadRepository(
         val startTime = System.currentTimeMillis()
 
         send(UploadStatus.Preparing(item.name))
+
+        // Daily limit of the account plan
+        dailyLimitMessage(item.category)?.let { message ->
+            send(UploadStatus.Failed(item.name, message, retryable = false))
+            return@channelFlow
+        }
 
         // 0. Pick the right Supabase:
         //    - free trial photo  -> developer's Supabase (Firebase app/backend), max 3 per installation
@@ -336,7 +364,7 @@ class UploadRepository(
                 UploadStatus.Failed(
                     item.name,
                     if (blockedByRules) {
-                        "The file is in Supabase, but Firebase refused to save the short link. " +
+                        "The file was uploaded, but its short link could not be saved. " +
                             FirebaseDatabaseManager.PERMISSION_DENIED_HINT
                     } else {
                         "The file was uploaded but its short link could not be saved " +
@@ -367,6 +395,7 @@ class UploadRepository(
         RecoveryStore.addUpload(record)
         UserDetailsStore.onUploadSucceeded(context, installationId, item.category, item.isTrial)
         activeAccount?.let { SupabaseAccountManager.recordUpload(context, it.id, item.sizeBytes) }
+        UsageTracker.recordUpload(context, item.category)
         send(UploadStatus.Success(record, totalItems))
     }.flowOn(Dispatchers.IO)
 
@@ -382,6 +411,10 @@ class UploadRepository(
 
         if (draft.files.isEmpty()) {
             send(UploadStatus.Failed(draft.name, "There are no website files to upload.", retryable = false))
+            return@channelFlow
+        }
+        websiteLimitMessage()?.let { message ->
+            send(UploadStatus.Failed(draft.name, message, retryable = false))
             return@channelFlow
         }
         val account = SupabaseAccountManager.pickForUpload(context, draft.totalBytes)
@@ -543,7 +576,7 @@ class UploadRepository(
                 UploadStatus.Failed(
                     draft.name,
                     if (blockedByRules) {
-                        "Firebase refused to save the website link. " + FirebaseDatabaseManager.PERMISSION_DENIED_HINT
+                        "The website link could not be saved. " + FirebaseDatabaseManager.PERMISSION_DENIED_HINT
                     } else {
                         "The website link could not be saved (${dbResult.exceptionOrNull()?.message ?: "unknown error"}). " +
                             "Check your internet connection and try again."
@@ -560,6 +593,7 @@ class UploadRepository(
         UserDetailsStore.onUploadSucceeded(context, installationId, MediaCategory.WEB, false)
         SupabaseAccountManager.recordUpload(context, account.id, draft.totalBytes)
         WebsiteBuilder.clean(context)
+        UsageTracker.recordWebsite(context)
         send(UploadStatus.Success(record, 1))
     }.flowOn(Dispatchers.IO)
 
@@ -602,6 +636,10 @@ class UploadRepository(
      * flaky connections; the result page follows on success.
      */
     fun publishTextPost(record: UploadRecord): Flow<UploadStatus> = channelFlow {
+        dailyLimitMessage(MediaCategory.TEXT)?.let { message ->
+            send(UploadStatus.Failed(record.fileName, message, retryable = false))
+            return@channelFlow
+        }
         send(UploadStatus.RegisteringMetadata(record.fileName, record.shortId))
 
         var dbResult: Result<Unit> = Result.failure(IllegalStateException("The post was not saved"))
@@ -619,7 +657,7 @@ class UploadRepository(
                 UploadStatus.Failed(
                     record.fileName,
                     if (blockedByRules) {
-                        "Firebase refused to save the post. " + FirebaseDatabaseManager.PERMISSION_DENIED_HINT
+                        "The post could not be saved right now. " + FirebaseDatabaseManager.PERMISSION_DENIED_HINT
                     } else {
                         "The post could not be published (${dbResult.exceptionOrNull()?.message ?: "unknown error"}). " +
                             "Check your internet connection and try again."
@@ -634,6 +672,7 @@ class UploadRepository(
         preferencesManager.addUploadRecord(record)
         HistoryRemoteStore.upsert(record)
         RecoveryStore.addUpload(record)
+        UsageTracker.recordUpload(context, MediaCategory.TEXT)
         send(UploadStatus.Success(record, 1))
     }.flowOn(Dispatchers.IO)
 

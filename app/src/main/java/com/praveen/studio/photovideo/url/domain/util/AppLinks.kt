@@ -11,6 +11,9 @@ object AppLinks {
     const val CONTACT = "$DOMAIN/contact"
     const val TERMS = "$DOMAIN/terms"
     const val PRIVACY = "$DOMAIN/privacy"
+    const val PREMIUM = "$DOMAIN/premium"
+    /** Premium customer support and plan questions. */
+    const val PREMIUM_EMAIL = "praveensahani9889@gmail.com"
 
     fun open(context: Context, url: String) {
         try {

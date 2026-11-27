@@ -30,10 +30,16 @@ data class AdsConfig(
 
 object AdsConfigProvider {
     @Volatile
-    var current: AdsConfig = AdsConfig()
-        private set
+    private var base: AdsConfig = AdsConfig()
+
+    /** Set by the account plan: a plan without ads (Premium 399, team accounts) switches every ad off. */
+    @Volatile
+    var planAdFree: Boolean = false
+
+    val current: AdsConfig
+        get() = if (planAdFree && !base.premiumAdFree) base.copy(premiumAdFree = true) else base
 
     fun update(config: AdsConfig) {
-        current = config
+        base = config
     }
 }

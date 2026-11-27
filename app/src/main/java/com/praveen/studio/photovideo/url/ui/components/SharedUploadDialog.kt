@@ -102,7 +102,7 @@ fun SharedUploadDialog(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "Upload shared file directly & generate ivu.gt.tc URL",
+                    text = "Upload the shared file and get a short link",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -180,7 +180,7 @@ fun SharedUploadDialog(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Upload to Supabase & Get ivu.gt.tc URL", fontWeight = FontWeight.Bold)
+                        Text("Upload & Get Short Link", fontWeight = FontWeight.Bold)
                     }
                 } else {
                     // Not configured state

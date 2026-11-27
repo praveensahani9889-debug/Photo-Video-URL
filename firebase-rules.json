@@ -3,7 +3,7 @@
     "public_links": {
       "$id": {
         ".read": true,
-        ".write": "!data.exists() || !newData.exists() || (newData.child('type').val() === data.child('type').val() && newData.child('supabaseUrl').val() === data.child('supabaseUrl').val() && newData.child('mimeType').val() === data.child('mimeType').val() && newData.child('body').val() === data.child('body').val())",
+        ".write": "!data.exists() || !newData.exists() || (newData.child('type').val() === data.child('type').val() && newData.child('supabaseUrl').val() === data.child('supabaseUrl').val() && newData.child('mimeType').val() === data.child('mimeType').val() && newData.child('body').val() === data.child('body').val() && (newData.child('views').val() === data.child('views').val() || newData.child('views').val() === (data.child('views').exists() ? data.child('views').val() : 0) + 1))",
         "views": {
           ".write": "data.parent().exists() && newData.isNumber() && newData.val() == (data.exists() ? data.val() : 0) + 1",
           ".validate": "newData.isNumber() && newData.val() >= 0"
@@ -78,6 +78,27 @@
         },
         "textAlign": {
           ".validate": "newData.isString() && (newData.val() === 'left' || newData.val() === 'center' || newData.val() === 'right')"
+        },
+        "originalUrl": {
+          ".validate": false
+        },
+        "url": {
+          ".validate": false
+        },
+        "fileType": {
+          ".validate": false
+        },
+        "mime": {
+          ".validate": false
+        },
+        "supabaseUrl": {
+          ".validate": "newData.isString() && newData.val().length <= 2048"
+        },
+        "fileName": {
+          ".validate": "newData.isString() && newData.val().length <= 300"
+        },
+        "active": {
+          ".validate": "newData.isBoolean()"
         }
       }
     },
@@ -109,6 +130,12 @@
     "app": {
       ".read": true,
       ".write": false
+    },
+    "accounts": {
+      "$id": {
+        ".read": true,
+        ".write": false
+      }
     }
   }
 }

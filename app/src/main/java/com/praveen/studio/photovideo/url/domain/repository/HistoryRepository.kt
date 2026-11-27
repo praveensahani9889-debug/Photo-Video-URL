@@ -170,7 +170,7 @@ class HistoryRepository(
             val firebaseResult = firebaseDbManager.deleteUpload(installationId, record.shortId, record.fileType)
             if (firebaseResult.isFailure) {
                 failed++
-                messages += firebaseResult.exceptionOrNull()?.message ?: "Could not remove ${record.fileName} from Firebase"
+                messages += firebaseResult.exceptionOrNull()?.message ?: "Could not remove ${record.fileName}. Please try again."
                 return@forEachIndexed
             }
             if (firebaseResult.getOrDefault(true) == false) {

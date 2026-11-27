@@ -1,6 +1,7 @@
 package com.praveen.studio.photovideo.url.domain.repository
 
 import android.content.Context
+import com.praveen.studio.photovideo.url.data.local.AccountStore
 import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
 import com.praveen.studio.photovideo.url.data.local.PreferencesManager
 import com.praveen.studio.photovideo.url.data.model.AppControlStore
@@ -58,9 +59,15 @@ class LinkOptionsRepository(
         }
     }
 
+    /** Website addresses with an ending (.com .in ...) belong to the Premium plans. Null when the plan allows them. */
+    private fun hostingPlanProblem(): String? =
+        if (AccountStore.plan.hostingEndings) null else "Website addresses with an ending are part of Premium."
+
     /** "Check availability" of a website address (name + ending), without writing anything. */
     suspend fun checkHosting(name: String, suffix: String): NameCheck {
-        HostingRules.problem(name, suffix, AppControlStore.current.blockedWords)?.let { return NameCheck.Invalid(it) }
+        hostingPlanProblem()?.let { return NameCheck.Invalid(it) }
+        HostingRules.problem(name, suffix, AppControlStore.current.blockedWords, AccountStore.plan.customEndings)
+            ?.let { return NameCheck.Invalid(it) }
         return firebase.isLinkNameFree(HostingRules.key(name, suffix)).fold(
             onSuccess = { free -> if (free) NameCheck.Free else NameCheck.Taken },
             onFailure = { NameCheck.Error(it.message ?: "Could not check the name.") }
@@ -77,7 +84,8 @@ class LinkOptionsRepository(
         var newId = record.shortId
         var displayUrl: String? = null
         if (name.isNotBlank()) {
-            HostingRules.problem(name, suffix, control.blockedWords)?.let {
+            hostingPlanProblem()?.let { return Result.failure(IllegalArgumentException(it)) }
+            HostingRules.problem(name, suffix, control.blockedWords, AccountStore.plan.customEndings)?.let {
                 return Result.failure(IllegalArgumentException(it))
             }
             val key = HostingRules.key(name, suffix)

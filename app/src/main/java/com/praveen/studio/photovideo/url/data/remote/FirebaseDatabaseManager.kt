@@ -5,6 +5,8 @@ import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ServerValue
+import com.praveen.studio.photovideo.url.data.model.AccountInfo
+import com.praveen.studio.photovideo.url.data.model.AccountType
 import com.praveen.studio.photovideo.url.data.model.LinkOptions
 import com.praveen.studio.photovideo.url.data.model.MediaCategory
 import com.praveen.studio.photovideo.url.data.model.PublicLinkDetails
@@ -28,6 +30,9 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.security.SecureRandom
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException
 
 /** One line of the Firebase self check shown in Settings. */
@@ -44,6 +49,7 @@ class FirebaseDatabaseManager {
         private const val NODE_DEVICE_PROFILES = "device_profiles"
         private const val NODE_IP_PROFILES = "ip_profiles"
         private const val NODE_CONFIG_BACKUP = "cfg"
+        private const val NODE_ACCOUNTS = "accounts"
 
         private const val SHORT_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         private const val SHORT_ID_LENGTH = 7
@@ -61,8 +67,7 @@ class FirebaseDatabaseManager {
         private var metadataChecked = false
 
         const val PERMISSION_DENIED_HINT =
-            "Firebase rules block saving. Open Firebase Console > Realtime Database > Rules, " +
-                "publish the rules from README.md (public_links + user + app) and try again."
+            "Your link could not be saved on our servers right now. Please try again in a moment."
 
         /** True when Firebase refused the request because of the database security rules. */
         fun isPermissionDenied(t: Throwable?): Boolean {
@@ -77,7 +82,7 @@ class FirebaseDatabaseManager {
         }
 
         const val DELETE_RULES_HINT =
-            "Firebase rules do not allow deleting. Publish the rules from README.md (public_links must allow delete)."
+            "The link could not be removed from our servers right now. Please try again later."
 
         /** Short text for the user instead of a bare "Permission denied". */
         fun describeError(t: Throwable?): String = when {
@@ -228,6 +233,40 @@ class FirebaseDatabaseManager {
             throw e
         } catch (t: Throwable) {
             Log.w(TAG, "fetchAppControl notice: ${t.message}")
+            null
+        }
+    }
+
+    /**
+     * Reads the account type of this phone from `accounts/<id>` (written only by the owner of the app in the
+     * console; the database rules refuse writes from the app). Returns:
+     *  - null       when it cannot be read now (offline): the caller keeps the saved copy
+     *  - Free       when there is no entry for this phone
+     *  - the plan   otherwise
+     */
+    suspend fun fetchAccount(installationId: String): AccountInfo? {
+        val ref = getDatabase()?.getReference(NODE_ACCOUNTS)?.child(installationId) ?: return null
+        return try {
+            val snap = withTimeout(LOOKUP_TIMEOUT_MS) { ref.get().await() }
+            if (!snap.exists()) {
+                AccountInfo()
+            } else {
+                val type = AccountType.parse(snap.child("type").getValue(String::class.java))
+                val rawDate = snap.child("purchaseDate").value
+                val purchase = when (rawDate) {
+                    is Number -> SimpleDateFormat("dd MMM yyyy", Locale.US).format(Date(rawDate.toLong()))
+                    null -> ""
+                    else -> rawDate.toString().trim()
+                }
+                val expires = (snap.child("expiresAt").value as? Number)?.toLong() ?: 0L
+                AccountInfo(type = type, purchaseDate = purchase, expiresAt = expires.coerceAtLeast(0L))
+            }
+        } catch (e: TimeoutCancellationException) {
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            Log.w(TAG, "fetchAccount notice: ${t.message}")
             null
         }
     }
@@ -444,9 +483,9 @@ class FirebaseDatabaseManager {
         publicNameOverride: String? = null
     ): Result<Unit> {
         val userNode = userRef(installationId)
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         val publicLinks = publicLinksRef()
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
 
         return try {
             val nodeName = categoryNode(category)
@@ -564,9 +603,9 @@ class FirebaseDatabaseManager {
      */
     suspend fun registerTextPost(installationId: String, record: UploadRecord): Result<Unit> {
         val userNode = userRef(installationId)
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         val publicLinks = publicLinksRef()
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         val post = record.textPost
             ?: return Result.failure(IllegalStateException("The text post is empty."))
 
@@ -640,7 +679,7 @@ class FirebaseDatabaseManager {
 
     /** The installationId registered for this phone (device key = hash of the Android ID), or null when none yet. */
     suspend fun fetchDeviceProfile(deviceKey: String): Result<String?> {
-        val db = getDatabase() ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        val db = getDatabase() ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         return try {
             val snapshot = withTimeout(LOOKUP_TIMEOUT_MS) {
                 db.getReference(NODE_DEVICE_PROFILES).child(deviceKey).child("installationId").get().await()
@@ -660,7 +699,7 @@ class FirebaseDatabaseManager {
      * forever. Returns the ID that is registered now (the existing one when the phone was registered meanwhile).
      */
     suspend fun registerDeviceProfile(deviceKey: String, installationId: String): Result<String> {
-        val db = getDatabase() ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+        val db = getDatabase() ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         return try {
             withTimeout(LOOKUP_TIMEOUT_MS) {
                 db.getReference(NODE_DEVICE_PROFILES).child(deviceKey).setValue(
@@ -716,7 +755,7 @@ class FirebaseDatabaseManager {
 
     suspend fun fetchConfigBackup(installationId: String): Result<String?> {
         val ref = userRef(installationId)?.child(NODE_CONFIG_BACKUP)
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         return try {
             val snapshot = withTimeout(LOOKUP_TIMEOUT_MS) { ref.get().await() }
             Result.success(snapshot.getValue(String::class.java)?.takeIf { it.isNotBlank() })
@@ -731,7 +770,7 @@ class FirebaseDatabaseManager {
 
     suspend fun saveConfigBackup(installationId: String, blob: String): Result<Unit> {
         val ref = userRef(installationId)?.child(NODE_CONFIG_BACKUP)
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         return try {
             withTimeout(LOOKUP_TIMEOUT_MS) { ref.setValue(blob).await() }
             Result.success(Unit)
@@ -746,7 +785,7 @@ class FirebaseDatabaseManager {
 
     suspend fun deleteConfigBackup(installationId: String): Result<Unit> {
         val ref = userRef(installationId)?.child(NODE_CONFIG_BACKUP)
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         return try {
             withTimeout(LOOKUP_TIMEOUT_MS) { ref.removeValue().await() }
             Result.success(Unit)
@@ -767,9 +806,9 @@ class FirebaseDatabaseManager {
      */
     suspend fun deleteUpload(installationId: String, shortId: String, fileType: String): Result<Boolean> {
         val userNode = userRef(installationId)
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         val publicLinks = publicLinksRef()
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         if (shortId.isBlank()) return Result.success(true)
 
         // The category folder is known from the file type; if it is not, every folder is cleaned (a no-op where empty).
@@ -814,7 +853,7 @@ class FirebaseDatabaseManager {
      */
     suspend fun fetchAllUserUploads(installationId: String): Result<List<UploadRecord>> {
         val ref = userRef(installationId)
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         return try {
             val snapshot = withTimeout(HISTORY_TIMEOUT_MS) { ref.get().await() }
             // parsing hundreds of records stays off the main thread
@@ -1059,7 +1098,7 @@ class FirebaseDatabaseManager {
     /** Is https://ivu.gt.tc/<slug> still free? One read of public_links/<slug>. */
     suspend fun isLinkNameFree(slug: String): Result<Boolean> {
         val links = publicLinksRef()
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         return try {
             val snap = withTimeout(LOOKUP_TIMEOUT_MS) { links.child(slug).get().await() }
             Result.success(!snap.exists())
@@ -1108,7 +1147,7 @@ class FirebaseDatabaseManager {
         displayUrl: String? = null
     ): Result<UploadRecord> {
         val db = getDatabase()
-            ?: return Result.failure(IllegalStateException("Firebase Database unavailable"))
+            ?: return Result.failure(IllegalStateException("The service is not available right now. Please try again."))
         val folder = folderOf(record)
             ?: return Result.failure(IllegalStateException("The file type of this link is unknown."))
         val oldId = record.shortId

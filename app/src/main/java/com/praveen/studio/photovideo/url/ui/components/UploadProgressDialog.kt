@@ -325,7 +325,7 @@ fun UploadProgressDialog(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Saving metadata to Firebase Realtime Database...",
+                            text = "Creating your short link...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

@@ -76,6 +76,13 @@ class PhotoVideoApplication : Application(), ImageLoaderFactory {
             Log.w(TAG, "Messaging start notice: ${t.message}")
         }
 
+        // The saved account plan first, so a plan without ads never starts the ad SDK
+        try {
+            com.praveen.studio.photovideo.url.data.local.AccountStore.load(this)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Account load notice: ${t.message}")
+        }
+
         // Unity Ads (rewarded ads for Copy / Share link). Starts once, only when ads are enabled in AdsConfig.
         try {
             AdsManager.initialize(this)

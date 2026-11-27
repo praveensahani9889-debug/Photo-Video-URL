@@ -169,7 +169,8 @@ private fun SummaryCard(accounts: List<SupabaseAccount>, max: Int) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "${accounts.size} of $max projects added. When the active project is full the app switches " +
+                text = (if (max == Int.MAX_VALUE) "${accounts.size} projects added." else "${accounts.size} of $max projects added.") +
+                    " When the active project is full the app switches " +
                     "to the next one by itself and shows a notification.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

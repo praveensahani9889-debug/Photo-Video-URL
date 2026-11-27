@@ -3,6 +3,7 @@ package com.praveen.studio.photovideo.url.ui.screens.settings
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.praveen.studio.photovideo.url.data.local.AccountStore
 import com.praveen.studio.photovideo.url.data.model.AppControlStore
 import com.praveen.studio.photovideo.url.data.model.SupabaseAccount
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
@@ -95,8 +96,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val accounts: StateFlow<List<SupabaseAccount>> = settingsRepository.accounts
     val activeAccountId: StateFlow<String> = settingsRepository.activeAccountId
 
-    /** How many projects the user may add (the developer can change it in Firebase app/backend). */
-    val maxAccounts: Int get() = AppControlStore.current.effectiveMaxAccounts
+    /** How many projects the user may add: it depends on the account plan ([Int.MAX_VALUE] = no limit). */
+    val maxAccounts: Int get() = AccountStore.plan.maxSupabase
+
+    val accountPlanUnlimited: Boolean get() = AccountStore.plan.unlimitedSupabase
+
+    /** "Up to 2 projects" / "Any number of projects", for the texts of Settings. */
+    val maxAccountsPhrase: String
+        get() = if (maxAccounts == Int.MAX_VALUE) "any number of projects" else "up to $maxAccounts project${if (maxAccounts == 1) "" else "s"}"
 
     private val _draft = MutableStateFlow<SupabaseDraft?>(null)
     val draft: StateFlow<SupabaseDraft?> = _draft.asStateFlow()
@@ -261,7 +268,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             try {
                 val ok = settingsRepository.saveAccount(account, maxAccounts)
                 if (!ok) {
-                    _draftError.value = "You can add up to $maxAccounts Supabase projects. Delete one to add another."
+                    _draftError.value = "Your plan allows $maxAccountsPhrase. Delete one to add another, or upgrade to Premium for more."
                 } else {
                     closeDialog()
                     onSaved(if (editing) "Supabase updated" else "Supabase connected")

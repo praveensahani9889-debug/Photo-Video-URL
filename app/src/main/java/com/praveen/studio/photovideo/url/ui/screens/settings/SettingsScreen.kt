@@ -7,6 +7,14 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import com.praveen.studio.photovideo.url.data.local.AccountStore
+import com.praveen.studio.photovideo.url.data.local.ProfilePhotoStore
+import com.praveen.studio.photovideo.url.ui.components.AccountBadge
+import com.praveen.studio.photovideo.url.ui.screens.premium.PremiumNav
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,7 +113,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.praveen.studio.photovideo.url.BuildConfig
-import com.praveen.studio.photovideo.url.ads.AdsManager
 import com.praveen.studio.photovideo.url.data.model.SupabaseAccount
 import com.praveen.studio.photovideo.url.data.model.ThemePreference
 import com.praveen.studio.photovideo.url.domain.util.AppLinks
@@ -137,6 +144,22 @@ fun SettingsScreen(
     val userDetails by viewModel.userDetails.collectAsState()
     val firebaseCheck by viewModel.firebaseCheck.collectAsState()
     val cacheBytes by viewModel.cacheBytes.collectAsState()
+
+    // Profile picture (stays on the phone) and the account type
+    val account by AccountStore.state.collectAsState()
+    val photoVersion by ProfilePhotoStore.version.collectAsState()
+    var profilePhoto by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(photoVersion) { profilePhoto = ProfilePhotoStore.load(context) }
+    val profileScope = rememberCoroutineScope()
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            profileScope.launch {
+                if (!ProfilePhotoStore.save(context, uri)) {
+                    Toast.makeText(context, "This picture could not be used. Choose another one.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     // Notifications: the card shows only while messages are NOT allowed; when they are on it disappears
     val notificationLifecycle = LocalLifecycleOwner.current
@@ -256,29 +279,77 @@ fun SettingsScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(60.dp)
                                 .clip(CircleShape)
-                                .background(CyanPrimary.copy(alpha = 0.15f)),
+                                .background(CyanPrimary.copy(alpha = 0.15f))
+                                .clickable { photoPicker.launch("image/*") }
+                                .testTag("profile_photo"),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = (savedName.trim().firstOrNull() ?: 'U').uppercaseChar().toString(),
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = CyanPrimary
-                            )
+                            val photo = profilePhoto
+                            if (photo != null) {
+                                Image(
+                                    bitmap = photo.asImageBitmap(),
+                                    contentDescription = "Profile picture",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Text(
+                                    text = (savedName.trim().firstOrNull() ?: 'U').uppercaseChar().toString(),
+                                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = CyanPrimary
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(
-                                text = "Profile",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = "Profile",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                AccountBadge(account.effectiveType)
+                            }
                             Text(
                                 text = savedName.ifBlank { "Add your name" },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Text(
+                                text = account.effectiveType.label +
+                                    if (account.effectiveType.isPaid && account.purchaseDate.isNotBlank()) {
+                                        "  -  since ${account.purchaseDate}"
+                                    } else {
+                                        ""
+                                    },
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { photoPicker.launch("image/*") },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) { Text(if (profilePhoto == null) "Add photo" else "Change photo", maxLines = 1) }
+                        if (profilePhoto != null) {
+                            TextButton(onClick = { ProfilePhotoStore.remove(context) }) { Text("Remove") }
+                        }
+                        Button(
+                            onClick = { PremiumNav.show() },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.weight(1f).testTag("btn_premium_plans")
+                        ) { Text(if (account.isFree) "Go Premium" else "My plan", maxLines = 1) }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -426,7 +497,7 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                             )
                             Text(
-                                text = "Your own cloud storage. Up to ${viewModel.maxAccounts} projects: when one is full, uploads switch to the next.",
+                                text = "Your own cloud storage: ${viewModel.maxAccountsPhrase}. When one is full, uploads switch to the next.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -493,6 +564,12 @@ fun SettingsScreen(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("Add another", maxLines = 1)
                                 }
+                            } else if (!viewModel.accountPlanUnlimited) {
+                                OutlinedButton(
+                                    onClick = { PremiumNav.show() },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Get more projects", maxLines = 1) }
                             }
                         }
                     }
@@ -571,7 +648,7 @@ fun SettingsScreen(
                             GuideStepItem(
                                 stepNumber = "4",
                                 title = "Check and Save",
-                                description = "Tap 'Run full check'. When every step is green, tap 'Save & connect'. You are ready to upload! Add up to ${viewModel.maxAccounts} projects: uploads switch to the next one when one is full."
+                                description = "Tap 'Run full check'. When every step is green, tap 'Save & connect'. You are ready to upload! Add ${viewModel.maxAccountsPhrase}: uploads switch to the next one when one is full."
                             )
                         }
                     }
@@ -618,17 +695,6 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(6.dp))
-                    // Ads status (tap to refresh): shows why an ad does not appear (SDK / no fill / test or real ads)
-                    var adsStatus by remember { mutableStateOf(AdsManager.statusSummary()) }
-                    Text(
-                        text = adsStatus,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable {
-                            AdsManager.preloadAds()
-                            adsStatus = AdsManager.statusSummary()
-                        }
-                    )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = {
@@ -659,7 +725,7 @@ fun SettingsScreen(
                         ) {
                             Icon(imageVector = Icons.Default.NetworkCheck, contentDescription = "Check Firebase", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (firebaseCheck is FirebaseCheckState.Checking) "Checking Firebase..." else "Check Firebase Connection")
+                            Text(if (firebaseCheck is FirebaseCheckState.Checking) "Checking..." else "Check connection")
                         }
                         (firebaseCheck as? FirebaseCheckState.Done)?.let { done ->
                             Spacer(modifier = Modifier.height(8.dp))
@@ -673,8 +739,7 @@ fun SettingsScreen(
                             if (done.lines.any { !it.ok }) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "If a step says BLOCKED, publish the Firebase rules from README.md " +
-                                        "(Firebase Console > Realtime Database > Rules).",
+                                    text = "If a step says BLOCKED, please contact support.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

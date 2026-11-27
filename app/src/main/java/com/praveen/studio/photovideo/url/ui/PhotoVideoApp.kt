@@ -7,7 +7,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.praveen.studio.photovideo.url.data.local.AccountStore
+import com.praveen.studio.photovideo.url.data.local.InstallationIdProvider
 import com.praveen.studio.photovideo.url.data.local.RecoveryStore
+import com.praveen.studio.photovideo.url.ui.screens.premium.PremiumNav
+import com.praveen.studio.photovideo.url.ui.screens.premium.PremiumScreen
 import com.praveen.studio.photovideo.url.ui.components.AppBottomBar
 import com.praveen.studio.photovideo.url.ui.components.NavTab
 import com.praveen.studio.photovideo.url.ui.navigation.TabRequests
@@ -178,6 +182,7 @@ fun PhotoVideoApp() {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME && identityReadyNow) {
                 controlScope.launch { IdentityManager.refreshSafeCopy(context) }
+                controlScope.launch { AccountStore.refresh(context, InstallationIdProvider(context).getInstallationId()) }
             }
         }
         appLifecycle.lifecycle.addObserver(observer)
@@ -199,6 +204,8 @@ fun PhotoVideoApp() {
         } catch (_: Throwable) {
         }
         identityReady = true
+        // the account type (Free / Premium / team) is read once the phone's profile ID is known
+        controlScope.launch { AccountStore.refresh(context, InstallationIdProvider(context).getInstallationId(), force = true) }
         if (showSplash) {
             val elapsed = System.currentTimeMillis() - startedAt
             delay((1400L - elapsed).coerceAtLeast(0L))
@@ -290,6 +297,12 @@ fun PhotoVideoApp() {
                 shortId = shortId,
                 onClose = { IncomingIntentManager.clearDeepLink() }
             )
+        }
+
+        // The Premium plans page (opened from Settings and from locked features)
+        val premiumOpen by PremiumNav.open.collectAsState()
+        if (premiumOpen && identityReady) {
+            PremiumScreen(onClose = { PremiumNav.close() })
         }
 
         // "New update available" (only when the version in app/backend is higher than this app)

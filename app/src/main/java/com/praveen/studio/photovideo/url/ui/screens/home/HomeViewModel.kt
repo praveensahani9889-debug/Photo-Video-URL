@@ -236,6 +236,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     /** "Publish" on the review page: the files go to the user's Supabase, then the link is saved. */
     fun confirmWebsite(name: String) {
         val draft = _websiteDraft.value ?: return
+        // the waiting time between two websites is checked before the draft is used up
+        uploadRepository.websiteLimitMessage()?.let { message ->
+            _websiteError.value = message
+            return
+        }
         _websiteDraft.value = null
         startWebsiteUpload(draft.copy(name = name))
     }
@@ -257,6 +262,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     /** The editor is finished: the post gets its address; the ad and the Advanced options follow. */
     fun startTextPost(post: TextPostData) {
+        // the daily limit of the plan is checked before the ad and the Advanced options, not after them
+        uploadRepository.dailyLimitMessage(MediaCategory.TEXT)?.let { message ->
+            _uploadStatus.value = UploadStatus.Failed(post.topic.ifBlank { "Text post" }, message, retryable = false)
+            return
+        }
         textToRetry = null
         _uploadStatus.value = UploadStatus.Preparing(post.topic.ifBlank { "Text post" })
         viewModelScope.launch {

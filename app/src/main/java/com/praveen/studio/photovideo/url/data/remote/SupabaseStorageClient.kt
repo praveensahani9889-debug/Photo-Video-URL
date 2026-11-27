@@ -85,8 +85,8 @@ class SupabaseStorageClient(
         private const val MAX_SCAN_FILES = 20_000
 
         const val DELETE_POLICY_HINT =
-            "Supabase did not allow deleting the file. In Supabase open SQL Editor and run the " +
-                "delete policy from README.md, then try again."
+            "Supabase did not allow deleting the file. Open Settings > Supabase > Set up Supabase, run the " +
+                "script shown there again in the Supabase SQL Editor, then try again."
         private const val TOO_LARGE_MESSAGE =
             "$TOO_LARGE_PREFIX for your Supabase storage limit (Free plan: 50 MB per file). " +
                 "Raise \"Global file size limit\" in Supabase > Storage > Settings (Pro plan), or upload a smaller file."

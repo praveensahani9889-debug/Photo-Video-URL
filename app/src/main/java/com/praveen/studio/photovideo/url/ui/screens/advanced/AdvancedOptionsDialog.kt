@@ -269,7 +269,7 @@ fun AdvancedOptionsDialog(
                     // ---------------------------------------------------------------------------
                     OptionCard(
                         title = "Expiry time",
-                        subtitle = "The link stops working and the file is deleted (Firebase and Supabase).",
+                        subtitle = "The link stops working and the file is deleted.",
                         checked = draft.expiryOn,
                         onCheckedChange = { on -> viewModel.update { it.copy(expiryOn = on) } }
                     ) {
@@ -336,7 +336,7 @@ fun AdvancedOptionsDialog(
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "The link stops working at that time. The file is removed from Supabase and Firebase " +
+                            text = "The link stops working at that time. The file is removed " +
                                 "the next time this app is opened after it.",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant

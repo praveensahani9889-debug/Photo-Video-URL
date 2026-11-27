@@ -402,7 +402,7 @@ fun HistoryItemCard(
                         if (!record.isFreeTier) {
                             Text(
                                 text = when {
-                                    record.textPost != null -> "Saved in the database only"
+                                    record.textPost != null -> "Text post"
                                     isWebsite && record.options.expiresAt > 0L ->
                                         "Website  \u2022  online until ${java.text.DateFormat.getDateInstance().format(java.util.Date(record.options.expiresAt))}"
                                     isWebsite -> "Website  \u2022  no expiry"

@@ -43,11 +43,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.praveen.studio.photovideo.url.data.local.AccountStore
 import com.praveen.studio.photovideo.url.data.model.AppControlStore
 import com.praveen.studio.photovideo.url.data.model.UploadRecord
 import com.praveen.studio.photovideo.url.domain.repository.LinkOptionsRepository
 import com.praveen.studio.photovideo.url.domain.repository.NameCheck
 import com.praveen.studio.photovideo.url.domain.util.HostingRules
+import com.praveen.studio.photovideo.url.ui.screens.premium.PremiumNav
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -71,6 +73,10 @@ fun CustomHostingDialog(
 
     var name by rememberSaveable { mutableStateOf("") }
     var suffix by rememberSaveable { mutableStateOf(HostingRules.SUFFIXES.first()) }
+    // what the account plan allows: Free = automatic address only, Premium 49 = the listed endings, 399 = also an own ending
+    val plan = AccountStore.plan
+    var useCustomEnding by rememberSaveable { mutableStateOf(false) }
+    var customEnding by rememberSaveable { mutableStateOf("") }
     var check by remember { mutableStateOf<NameCheck?>(null) }
     var checking by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -124,7 +130,7 @@ fun CustomHostingDialog(
         saving = true
         error = null
         scope.launch {
-            repository.applyHosting(record, if (useName) name else "", suffix, chosenDays).fold(
+            repository.applyHosting(record, if (useName && plan.hostingEndings) name else "", suffix, chosenDays).fold(
                 onSuccess = { updated ->
                     saving = false
                     onFinished(updated)
@@ -170,6 +176,7 @@ fun CustomHostingDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
+                    if (plan.hostingEndings) {
                     HostingCard(title = "Website address") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -201,8 +208,34 @@ fun CustomHostingDialog(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             HostingRules.SUFFIXES.forEach { s ->
-                                ChoiceChip(label = s, selected = suffix == s, enabled = !saving) { suffix = s }
+                                ChoiceChip(label = s, selected = !useCustomEnding && suffix == s, enabled = !saving) {
+                                    useCustomEnding = false
+                                    suffix = s
+                                }
                             }
+                            if (plan.customEndings) {
+                                ChoiceChip(label = "Your own", selected = useCustomEnding, enabled = !saving) {
+                                    useCustomEnding = true
+                                    suffix = HostingRules.cleanCustomSuffix(customEnding)
+                                }
+                            }
+                        }
+                        if (useCustomEnding) {
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = customEnding,
+                                onValueChange = { v ->
+                                    customEnding = v.lowercase().filter { it in 'a'..'z' || it in '0'..'9' }
+                                        .take(HostingRules.MAX_CUSTOM_ENDING)
+                                    suffix = HostingRules.cleanCustomSuffix(customEnding)
+                                },
+                                label = { Text("Your ending (2 to 10 letters or numbers)") },
+                                prefix = { Text(".") },
+                                singleLine = true,
+                                enabled = !saving,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth().testTag("hosting_custom_ending")
+                            )
                         }
                         Spacer(Modifier.height(10.dp))
                         if (name.isNotBlank()) {
@@ -237,6 +270,27 @@ fun CustomHostingDialog(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    }
+
+                    } else {
+                        HostingCard(title = "Website address") {
+                            Text(
+                                text = "Your website address: ${HostingRules.SITE}/${record.shortId}",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = "Your own address with an ending such as .com, .in, .ai or .co is part of Premium.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { PremiumNav.show() },
+                                shape = RoundedCornerShape(10.dp)
+                            ) { Text("View Premium plans") }
                         }
                     }
 
